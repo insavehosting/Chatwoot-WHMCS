@@ -138,6 +138,18 @@ function hook_chatwoot_output($vars)
         }
     }
 
+    # the SDK appends '/packs/js/sdk.js' and '/widget' itself
+    $chatwoot_url = rtrim($chatwoot_url, '/');
+
+    # Reset the widget only when its session belongs to someone else: after a
+    # logout (flag from the logout hook, or a client marker left in the
+    # browser) or when a different client is now logged in. Never for a
+    # visitor who has not logged in -- resetting on every /login view dropped
+    # the conversation of anyone asking for help there.
+    $chatwoot_reset = empty($_SESSION['chatwoot_reset']) ? 'false' : 'true';
+    unset($_SESSION['chatwoot_reset']);
+    $chatwoot_client_key = empty($ClientID) ? '' : $clientChatID;
+
     # prepare widget code
     $chatwoot_jscode = "
             <script>
@@ -167,6 +179,20 @@ function hook_chatwoot_output($vars)
             "$chatwoot_jscode
             <script>
               window.addEventListener('chatwoot:ready', function () {
+                // Another client chatted last in this browser: start clean.
+                // chatwoot:ready does not fire again after reset(), so this
+                // client is identified on the next page.
+                var current = '$chatwoot_client_key', previous = null;
+                if (current) {
+                  try {
+                    previous = localStorage.getItem('insave_cw_client');
+                    localStorage.setItem('insave_cw_client', current);
+                  } catch (e) {}
+                }
+                if (previous && previous !== current) {
+                  window.\$chatwoot.reset();
+                  return;
+                }
                 window.\$chatwoot.setUser('$clientChatID', {
                   email: '$clientemail',
                   name: '$clientname',
@@ -203,6 +229,16 @@ function hook_chatwoot_output($vars)
             $chatwoot_jscode
             <script>
               window.addEventListener('chatwoot:ready', function () {
+                // A client logged out in this browser: drop their session.
+                var previous = null;
+                try {
+                  previous = localStorage.getItem('insave_cw_client');
+                  localStorage.removeItem('insave_cw_client');
+                } catch (e) {}
+                if (previous || $chatwoot_reset) {
+                  window.\$chatwoot.reset();
+                  return;
+                }
                 window.\$chatwoot.setLabel('$chatwoot_label');
                 window.\$chatwoot.setLocale('$chatwoot_lang');
                 window.\$chatwoot.setCustomAttributes({
@@ -214,66 +250,16 @@ function hook_chatwoot_output($vars)
     return $chatwoot_output;
 }
 
-function hook_chatwoot_logout_output($vars)
-{
-    $chatwoot_logoutJS = "
-        <script>
-          document.addEventListener('readystatechange', event => {
-            window.\$chatwoot.reset()
-          });
-        </script>";
-    echo $chatwoot_logoutJS;
-}
-
-$whmcsver = cwoot_whmcs_version();
-
-# for WHMCS 8 and later
-if ($whmcsver > 7) {
-    add_hook('UserLogout', 1, function ($vars) {
-        $chatwoot_logoutJS = "<!-- Chatwoot Logout Code -->
-            <script>
-                document.addEventListener('readystatechange', event => {
-                    window.\$chatwoot.reset()
-                });
-            </script>
-            <!-- Chatwoot End Logout Code -->";
-        $_SESSION['chatwoot_logoutJS'] = $chatwoot_logoutJS;
-    });
-
-    add_hook('ClientAreaPageLogin', 1, function ($vars) {
-        if ($_SESSION['chatwoot_logoutJS']) {
-            echo $_SESSION['chatwoot_logoutJS'];
-            unset($_SESSION['chatwoot_logoutJS']);
-        }
-    });
-}
-
 $whmcsver   = cwoot_whmcs_version();
 $LogoutHook = ($whmcsver > 7) ? 'UserLogout' : 'ClientLogout';
 
-function ViewClientSwitchAccount($vars) {
+# The reset itself happens in the widget code above, once the SDK is ready:
+# the old readystatechange handler ran before window.$chatwoot existed.
+add_hook($LogoutHook, 1, function ($vars) {
+    $_SESSION['chatwoot_reset'] = true;
+});
 
-    $url = "https://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
-
-    if (str_contains($url, '/user/accounts') || str_contains($url, '/login')) {
-
-        $output .= <<<HTML
-<!-- Chatwoot Logout Code -->
-<script>
-    document.addEventListener('readystatechange', event => {
-        window.\$chatwoot.reset()
-    });
-</script>
-<!-- Chatwoot End Logout Code -->
-HTML;
-
-        return $output;
-    }
-}
-
-add_hook("ClientAreaHeaderOutput", 1, "ViewClientSwitchAccount");
 add_hook('ClientAreaFooterOutput', 1, 'hook_chatwoot_output');
-add_hook($LogoutHook, 1, 'hook_chatwoot_logout_output');
 
 # meta
 function cwoot_whmcs_version() {
