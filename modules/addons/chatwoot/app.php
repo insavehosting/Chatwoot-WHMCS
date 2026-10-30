@@ -170,6 +170,7 @@ function cwapp_account($clientId, $isOwner)
     $products = $productIds ? Capsule::table('tblproducts')->whereIn('id', $productIds)->pluck('name', 'id')->all() : [];
     foreach (array_slice($hosting, 0, 30) as $row) {
         $services[] = [
+            'id'        => (int) $row->id,
             'product'   => (string) ($products[(int) $row->packageid] ?? ''),
             'domain'    => (string) $row->domain,
             'status'    => (string) $row->domainstatus,
@@ -191,9 +192,16 @@ function cwapp_account($clientId, $isOwner)
             $paid[(int) $tx->invoiceid] = ($paid[(int) $tx->invoiceid] ?? 0) + (float) $tx->amountin - (float) $tx->amountout;
         }
     }
-    $today = date('Y-m-d');
+    $today   = date('Y-m-d');
+    $owed    = 0.0;
+    $overdue = 0;
+    foreach ($unpaid as $row) {
+        $owed += (float) $row->total - ($paid[(int) $row->id] ?? 0);
+        $overdue += (string) $row->duedate < $today ? 1 : 0;
+    }
     foreach (array_slice($unpaid, 0, 20) as $row) {
         $invoices[] = [
+            'id'      => (int) $row->id,
             'number'  => (string) ($row->invoicenum !== '' && $row->invoicenum !== null ? $row->invoicenum : $row->id),
             'due'     => cwapp_date($row->duedate),
             'balance' => $money((float) $row->total - ($paid[(int) $row->id] ?? 0)),
@@ -229,8 +237,15 @@ function cwapp_account($clientId, $isOwner)
         'url'        => cwapp_admin_url('clientssummary.php?userid=' . (int) $client->id),
         'services'   => $services,
         'services_n' => count($hosting),
+        'active_n'   => count(array_filter($hosting, function ($row) {
+            return $row->domainstatus === 'Active';
+        })),
         'invoices'   => $invoices,
+        'unpaid_n'   => count($unpaid),
+        'unpaid'     => $money($owed),
+        'overdue_n'  => $overdue,
         'tickets'    => $tickets,
+        'tickets_n'  => count($open),
     ];
 }
 
@@ -260,38 +275,112 @@ function cwapp_page($admin, $origin)
 {
     $login = htmlspecialchars(cwapp_admin_url(''), ENT_QUOTES, 'UTF-8');
     if ($origin === '') {
-        $body = '<p class="note">Set the Chatwoot URL in Setup &rarr; Addon Modules &rarr; Chatwoot by inSave.</p>';
+        $body = '<div class="state"><p>Set the Chatwoot URL in Setup &rarr; Addon Modules &rarr; Chatwoot by inSave.</p></div>';
     } elseif ($admin === null) {
-        $body = '<p class="note">Log in to the WHMCS admin area in this browser to see the client.</p>'
-            . '<p><a href="' . $login . '" target="_blank" rel="noopener">Log in to WHMCS admin</a> &middot; '
-            . '<a href="" onclick="location.reload(); return false;">Reload</a></p>';
+        $body = '<div class="state"><p>Log in to the WHMCS admin area in this browser to see the client.</p>'
+            . '<p><a class="button" href="' . $login . '" target="_blank" rel="noopener">Log in to WHMCS admin</a> '
+            . '<a class="button quiet" href="" onclick="location.reload(); return false;">Reload</a></p></div>';
     } elseif ($admin === false) {
-        $body = '<p class="note">Your admin role has no access to this card: Setup &rarr; Addon Modules &rarr; '
-            . 'Chatwoot by inSave &rarr; Configure &rarr; Access Control.</p>';
+        $body = '<div class="state"><p>Your admin role has no access to this card: Setup &rarr; Addon Modules &rarr; '
+            . 'Chatwoot by inSave &rarr; Configure &rarr; Access Control.</p></div>';
     } else {
-        $config = cwapp_json(['origin' => $origin, 'token' => (string) generate_token('plain')]);
-        $body   = '<div id="card"><p class="note">Waiting for the conversation&hellip;</p></div>'
-            . '<script>window.CWAPP = ' . $config . ';</script>'
-            . '<script>' . cwapp_script() . '</script>';
+        $body = '<div id="card"><div class="state"><p>Waiting for the conversation&hellip;</p></div></div>';
+    }
+
+    # Every state follows Chatwoot's light or dark theme; only an admin with
+    # access gets the token that loads client data.
+    $script = '';
+    if ($origin !== '') {
+        $config = ['origin' => $origin];
+        if ($admin) {
+            $config['token'] = (string) generate_token('plain');
+        }
+        $script = '<script>window.CWAPP = ' . cwapp_json($config) . ';</script><script>' . cwapp_script() . '</script>';
     }
 
     return '<!doctype html><html><head><meta charset="utf-8"><meta name="robots" content="noindex">'
-        . '<title>WHMCS</title><style>' . cwapp_style() . '</style></head><body>' . $body . '</body></html>';
+        . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        . '<title>WHMCS</title><style>' . cwapp_style() . '</style></head><body>' . $body . $script . '</body></html>';
 }
 
+# Colors are Chatwoot's own (v4.19.1 tokens, light and dark), so the card
+# reads as part of the dashboard. A few pill texts are a step darker than the
+# tokens in the light theme to keep small text at 4.5:1 or more.
 function cwapp_style()
 {
-    return <<<'CSS'
-body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 12px; color: #1f2d3d; background: #fff; }
-body.dark { color: #e4e7eb; background: #1b1f24; }
-a { color: #1f6feb; } body.dark a { color: #58a6ff; }
-h2 { font-size: 15px; margin: 0 0 2px; } h3 { font-size: 12px; margin: 14px 0 4px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
-.note { opacity: .75; } .muted { opacity: .65; }
-.badge { display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 11px; background: #e8eef6; margin-left: 4px; }
-body.dark .badge { background: #2d333b; } .badge.warn { background: #fde7c4; color: #6b3f00; } .badge.bad { background: #fbd5d5; color: #7a1010; }
-.account { border-top: 1px solid rgba(127,127,127,.25); padding-top: 10px; margin-top: 10px; }
-ul { list-style: none; margin: 0; padding: 0; } li { padding: 3px 0; border-bottom: 1px dashed rgba(127,127,127,.2); }
-button { font: inherit; padding: 2px 8px; cursor: pointer; }
+    $light = '--text: 28 32 36; --muted: 96 100 108; --surface: 255 255 255; --raised: 249 249 251; --border: 226 227 231;'
+        . ' --link: 8 109 224; --focus: 39 129 246;'
+        . ' --green-bg: 224 248 243; --green: 0 105 92; --amber-bg: 255 247 194; --amber: 135 80 0;'
+        . ' --red-bg: 254 234 237; --red: 202 36 77; --blue-bg: 233 243 255; --blue: 0 90 190;'
+        . ' --gray-bg: 240 240 243; --gray: 96 100 108; --iris-bg: 240 241 254; --iris: 87 83 198;';
+    $dark = '--text: 237 238 240; --muted: 176 180 186; --surface: 29 30 36; --raised: 33 34 37; --border: 46 45 50;'
+        . ' --link: 126 182 255; --focus: 39 129 246;'
+        . ' --green-bg: 13 45 42; --green: 11 216 182; --amber-bg: 48 32 8; --amber: 255 202 22;'
+        . ' --red-bg: 58 20 30; --red: 255 148 157; --blue-bg: 15 39 72; --blue: 126 182 255;'
+        . ' --gray-bg: 39 42 45; --gray: 176 180 186; --iris-bg: 32 34 72; --iris: 158 177 255;';
+
+    # No color-scheme: Chatwoot does not set one, and an iframe whose scheme
+    # differs from its parent's gets an opaque canvas instead of showing the
+    # dashboard's background through.
+    return ':root { ' . $light . ' }'
+        . ' @media (prefers-color-scheme: dark) { :root:not(.light) { ' . $dark . ' } }'
+        . ' :root.dark { ' . $dark . ' }'
+        . <<<'CSS'
+
+* { box-sizing: border-box; }
+html { scrollbar-color: rgb(var(--border)) transparent; scrollbar-width: thin; }
+body { margin: 0; padding: 12px; background: transparent; color: rgb(var(--text));
+  font: 13px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: rgb(var(--link)); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid rgb(var(--focus)); outline-offset: 2px; border-radius: 6px; }
+p { margin: 0; }
+.muted { color: rgb(var(--muted)); }
+.state { max-width: 380px; margin: 32px auto; text-align: center; color: rgb(var(--muted)); display: grid; gap: 14px; }
+.button { display: inline-block; padding: 6px 12px; border: 1px solid rgb(var(--border)); border-radius: 8px;
+  background: rgb(var(--surface)); color: rgb(var(--link)); font-weight: 500; }
+.button:hover { text-decoration: none; background: rgb(var(--raised)); }
+.button.quiet { color: rgb(var(--muted)); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; color: rgb(var(--muted)); }
+.icon { width: 30px; height: 30px; display: inline-grid; place-items: center; border: 1px solid rgb(var(--border)); border-radius: 8px;
+  background: rgb(var(--surface)); color: rgb(var(--muted)); cursor: pointer; flex: none; }
+.icon:hover { color: rgb(var(--text)); background: rgb(var(--raised)); }
+.pill { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 500;
+  line-height: 20px; white-space: nowrap; background: rgb(var(--gray-bg)); color: rgb(var(--gray)); }
+.pill.green { background: rgb(var(--green-bg)); color: rgb(var(--green)); }
+.pill.amber { background: rgb(var(--amber-bg)); color: rgb(var(--amber)); }
+.pill.red { background: rgb(var(--red-bg)); color: rgb(var(--red)); }
+.pill.blue { background: rgb(var(--blue-bg)); color: rgb(var(--blue)); }
+.pill.iris { background: rgb(var(--iris-bg)); color: rgb(var(--iris)); }
+.account { margin-top: 12px; padding: 14px; border: 1px solid rgb(var(--border)); border-radius: 12px; background: rgb(var(--surface)); }
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.name { font-size: 15px; font-weight: 600; color: rgb(var(--text)); }
+.name:hover { color: rgb(var(--link)); }
+.sub { margin-top: 2px; color: rgb(var(--muted)); font-size: 12px; overflow-wrap: anywhere; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin: 12px 0 4px; }
+.stat { padding: 8px 10px; border-radius: 8px; background: rgb(var(--raised)); border: 1px solid rgb(var(--border)); }
+.stat span { display: block; font-size: 11px; color: rgb(var(--muted)); }
+.stat b { display: block; font-size: 14px; font-weight: 600; margin-top: 1px; }
+.stat.warn b { color: rgb(var(--red)); }
+details { margin-top: 10px; }
+summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 0;
+  font-size: 12px; font-weight: 600; color: rgb(var(--muted)); user-select: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s; margin: 0 3px 0 1px; }
+details[open] > summary::before { transform: rotate(45deg); }
+.count { font-weight: 500; padding: 0 6px; border-radius: 999px; background: rgb(var(--gray-bg)); color: rgb(var(--gray)); line-height: 18px; }
+.rows { list-style: none; margin: 2px 0 0; padding: 0; }
+.row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-top: 1px solid rgb(var(--border)); }
+.row:first-child { border-top: 0; }
+.main { min-width: 0; }
+.main a { font-weight: 500; }
+.title { color: rgb(var(--text)); }
+.side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
+.amount { font-weight: 600; font-variant-numeric: tabular-nums; }
+.empty { padding: 6px 0 2px; color: rgb(var(--muted)); }
+@media (max-width: 460px) { .row { flex-direction: column; gap: 4px; } .side { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px; text-align: left; } }
 CSS;
 }
 
@@ -299,7 +388,13 @@ function cwapp_script()
 {
     return <<<'JS'
 (function () {
-  var cfg = window.CWAPP, card = document.getElementById('card'), last = null;
+  var cfg = window.CWAPP || {}, root = document.documentElement, card = document.getElementById('card'), last = null;
+  var TONES = {
+    Active: 'green', Pending: 'blue', Suspended: 'amber', Fraud: 'red', Inactive: 'gray', Closed: 'red',
+    Open: 'blue', 'Customer-Reply': 'amber', Answered: 'green', 'In Progress': 'blue'
+  };
+  var REFRESH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    + '<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function el(tag, text, cls) {
     var node = document.createElement(tag);
@@ -307,73 +402,92 @@ function cwapp_script()
     if (cls) node.className = cls;
     return node;
   }
-  function link(text, href) {
-    var a = el('a', text);
+  function add(parent) {
+    for (var i = 1; i < arguments.length; i++) if (arguments[i]) parent.appendChild(arguments[i]);
+    return parent;
+  }
+  function link(text, href, cls) {
+    var a = el('a', text, cls);
     a.href = href; a.target = '_blank'; a.rel = 'noopener';
     return a;
   }
-  function note(text) {
-    card.textContent = '';
-    card.appendChild(el('p', text, 'note'));
+  function pill(text, tone) {
+    return el('span', text, 'pill ' + (tone || TONES[text] || 'gray'));
   }
-  function section(title, items, render) {
-    var box = document.createDocumentFragment();
-    box.appendChild(el('h3', title));
-    if (!items.length) { box.appendChild(el('p', 'None', 'muted')); return box; }
-    var list = el('ul');
+  function state(text) {
+    card.textContent = '';
+    add(card, add(el('div', null, 'state'), el('p', text)));
+  }
+  function stat(key, label, value, warn) {
+    var tile = el('div', null, 'stat' + (warn ? ' warn' : ''));
+    tile.setAttribute('data-stat', key);
+    return add(tile, el('span', label), el('b', value));
+  }
+  function section(title, total, items, empty, render) {
+    var box = el('details');
+    box.open = true;
+    add(box, add(el('summary', title + ' '), el('span', total, 'count')));
+    if (!items.length) return add(box, el('p', empty, 'empty'));
+    var list = el('ul', null, 'rows');
     items.forEach(function (item) { list.appendChild(render(item)); });
-    box.appendChild(list);
-    return box;
+    return add(box, list);
+  }
+  function row(attr, value, main, side) {
+    var li = el('li', null, 'row');
+    li.setAttribute(attr, value);
+    return add(li, add.apply(null, [el('div', null, 'main')].concat(main)), add.apply(null, [el('div', null, 'side')].concat(side)));
   }
 
   function render(data, contact) {
     card.textContent = '';
-    var head = el('p');
-    var refresh = el('button', 'Refresh');
+    var who = el('div', null, 'who');
+    var refresh = el('button', null, 'icon');
+    refresh.type = 'button';
+    refresh.title = 'Refresh';
+    refresh.setAttribute('aria-label', 'Refresh');
+    refresh.innerHTML = REFRESH;
     refresh.onclick = function () { last = null; requestContext(); };
-    head.appendChild(refresh);
-    if (data.match === 'email') head.appendChild(el('span', 'matched by email, not confirmed', 'badge warn'));
-    if (data.match === 'identifier') head.appendChild(el('span', 'signed-in user', 'badge'));
-    card.appendChild(head);
+    if (data.match === 'identifier') who.appendChild(pill('Signed-in user', 'iris'));
+    if (data.match === 'email') who.appendChild(pill('Matched by email, not confirmed', 'amber'));
+    if (data.match) who.setAttribute('data-match', data.match);
+    if (data.user) who.appendChild(el('span', data.user.name + ' · ' + data.user.email));
+    add(card, add(el('div', null, 'top'), who, refresh));
 
     if (!data.accounts.length) {
-      card.appendChild(el('p', 'No WHMCS client for ' + (contact.email || contact.name || 'this contact') + '.', 'note'));
+      add(card, add(el('div', null, 'state'), el('p', 'No WHMCS client for ' + (contact.email || contact.name || 'this contact') + '.')));
       return;
     }
-    if (data.user) card.appendChild(el('p', 'User: ' + data.user.name + ' <' + data.user.email + '>', 'muted'));
 
     data.accounts.forEach(function (acc) {
-      var box = el('div', null, 'account');
-      var title = el('h2');
-      title.appendChild(link(acc.company || acc.name, acc.url));
-      if (acc.owner === true) title.appendChild(el('span', 'owner', 'badge'));
-      if (acc.owner === false) title.appendChild(el('span', 'invited user', 'badge'));
-      if (acc.status !== 'Active') title.appendChild(el('span', acc.status, 'badge bad'));
-      box.appendChild(title);
-      box.appendChild(el('p', [acc.company ? acc.name : '', acc.email, 'client since ' + acc.since, 'credit ' + acc.credit]
-        .filter(Boolean).join(' · '), 'muted'));
+      var box = el('section', null, 'account');
+      box.setAttribute('data-account', acc.id);
+      var head = add(el('div', null, 'head'), link(acc.company || acc.name, acc.url, 'name'));
+      if (acc.owner === true) head.appendChild(pill('Owner', 'gray')).setAttribute('data-role', 'owner');
+      if (acc.owner === false) head.appendChild(pill('Invited user', 'gray')).setAttribute('data-role', 'invited');
+      if (acc.status !== 'Active') head.appendChild(pill(acc.status));
+      add(box, head, el('p', [acc.company ? acc.name : '', acc.email, 'client #' + acc.id + ' since ' + acc.since]
+        .filter(Boolean).join(' · '), 'sub'));
 
-      box.appendChild(section('Services (' + acc.services_n + ')', acc.services, function (s) {
-        var li = el('li');
-        li.appendChild(link(s.product || 'Service', s.url));
-        if (s.domain) li.appendChild(el('span', ' ' + s.domain));
-        li.appendChild(el('span', s.status, s.status === 'Active' ? 'badge' : 'badge bad'));
-        li.appendChild(el('div', [s.amount, s.next_due ? 'next due ' + s.next_due : ''].filter(Boolean).join(' · '), 'muted'));
-        return li;
+      add(box, add(el('div', null, 'stats'),
+        stat('credit', 'Credit', acc.credit),
+        stat('unpaid', 'Unpaid' + (acc.unpaid_n ? ' (' + acc.unpaid_n + ')' : ''), acc.unpaid),
+        stat('overdue', 'Overdue invoices', acc.overdue_n, acc.overdue_n > 0),
+        stat('tickets', 'Open tickets', acc.tickets_n)));
+
+      add(box, section('Services', acc.active_n + ' active / ' + acc.services_n, acc.services, 'No services', function (s) {
+        return row('data-service', s.id,
+          [link(s.product || 'Service', s.url), s.domain ? el('div', s.domain, 'sub') : null],
+          [pill(s.status), el('div', [s.amount, s.next_due ? 'next due ' + s.next_due : ''].filter(Boolean).join(' · '), 'sub')]);
       }));
-      box.appendChild(section('Unpaid invoices', acc.invoices, function (i) {
-        var li = el('li');
-        li.appendChild(link('#' + i.number, i.url));
-        li.appendChild(el('span', ' ' + i.balance + ' · due ' + i.due));
-        if (i.overdue) li.appendChild(el('span', 'overdue', 'badge bad'));
-        return li;
+      add(box, section('Unpaid invoices', acc.unpaid_n, acc.invoices, 'No unpaid invoices', function (i) {
+        return row('data-invoice', i.id,
+          [link('Invoice #' + i.number, i.url), el('div', 'due ' + i.due, 'sub')],
+          [el('span', i.balance, 'amount'), i.overdue ? pill('Overdue', 'red') : null]);
       }));
-      box.appendChild(section('Open tickets', acc.tickets, function (t) {
-        var li = el('li');
-        li.appendChild(link('#' + t.tid, t.url));
-        li.appendChild(el('span', ' ' + t.title));
-        li.appendChild(el('span', t.status, 'badge'));
-        return li;
+      add(box, section('Open tickets', acc.tickets_n, acc.tickets, 'No open tickets', function (t) {
+        return row('data-ticket', t.tid,
+          [link('#' + t.tid, t.url), el('div', t.title, 'sub title')],
+          [pill(t.status), t.last_reply ? el('div', 'last reply ' + t.last_reply, 'sub') : null]);
       }));
       card.appendChild(box);
     });
@@ -381,10 +495,10 @@ function cwapp_script()
 
   function load(contact) {
     if (!contact || (!contact.identifier && !contact.email)) {
-      note('This conversation has no contact with an email or a WHMCS identifier.');
+      state('This conversation has no contact with an email or a WHMCS identifier.');
       return;
     }
-    note('Loading…');
+    state('Loading…');
     var form = new FormData();
     form.append('token', cfg.token);
     form.append('identifier', contact.identifier || '');
@@ -392,23 +506,27 @@ function cwapp_script()
     fetch(location.pathname, { method: 'POST', body: form, credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.error) { note(data.error === 'login' ? 'The WHMCS admin session has ended: reload after logging in.' : 'Request refused (' + data.error + ').'); return; }
+        if (data.error) { state(data.error === 'login' ? 'The WHMCS admin session has ended: reload after logging in.' : 'Request refused (' + data.error + ').'); return; }
         render(data, contact);
       })
-      .catch(function () { note('Could not load the client.'); });
+      .catch(function () { state('Could not load the client.'); });
   }
 
   function requestContext() {
     window.parent.postMessage('chatwoot-dashboard-app:fetch-info', cfg.origin);
   }
 
-  // Only the configured Chatwoot origin may tell this page which contact to show.
+  // Only the configured Chatwoot origin may tell this page which contact to
+  // show; the theme follows Chatwoot's on every page state.
   window.addEventListener('message', function (event) {
     if (event.origin !== cfg.origin || typeof event.data !== 'string') return;
     var message;
     try { message = JSON.parse(event.data); } catch (e) { return; }
     if (!message || message.event !== 'appContext' || !message.data) return;
-    document.body.classList.toggle('dark', message.data.theme === 'dark');
+    var dark = message.data.theme === 'dark';
+    root.classList.toggle('dark', dark);
+    root.classList.toggle('light', !dark);
+    if (!cfg.token || !card) return;
     // Chatwoot sends the context again on theme and attribute changes: load
     // the client once per contact, again only on Refresh.
     var contact = message.data.contact || null;

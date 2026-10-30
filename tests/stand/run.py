@@ -416,7 +416,7 @@ def _app_checks(stand, browser):
           and headers.get('Referrer-Policy') == 'no-referrer', dict(headers))
     check('card without a session: login link to the admin folder, no token, no data',
           'Log in to WHMCS admin' in body and 'https://billing.example.test/staffpanel/' in body
-          and 'CWAPP' not in body and '@' not in body, body[:300])
+          and '"token"' not in body and not re.search(r'[\w.+-]+@[\w-]+\.\w+', body), body[:300])
     form = urllib.parse.urlencode({'identifier': 'whmcs:u:10', 'email': 'owner@example.test', 'token': 'x'}).encode()
     try:
         urllib.request.urlopen(stand.direct, data=form)
@@ -452,34 +452,86 @@ def _app_checks(stand, browser):
     check('card in Chatwoot without an admin session: login link, no data',
           'Log in to WHMCS admin' in text and 'Acme' not in text, text[:200])
 
+    card = page.frame_locator('#dashboard-app--frame-0-0')
+    open_card(owner, theme='dark')
+    check("without a session the login note follows Chatwoot's dark theme",
+          'dark' in (card.locator('html').get_attribute('class') or ''))
+
+    def attr_list(selector, attribute):
+        return card.locator(selector).evaluate_all(f'els => els.map(e => e.getAttribute("{attribute}"))')
+
+    def part(selector):
+        loc = card.locator(selector)
+        return loc.first.inner_text() if loc.count() else ''
+
     page.goto(f'http://billing.example.test:{stand.whmcs_port}/stand/admin?id=1')
     text = open_card(owner)
     check('admin session reaches the iframe (same site): the card loads', 'Acme' in text, text[:300])
-    check('card by identifier: signed-in user, owner, client details and credit',
-          'signed-in user' in text and 'owner' in text and 'client since 2024-03-01' in text
-          and 'credit $5.00 USD' in text and 'owner@example.test' in text, text)
+    account = part('[data-account="100"]')
+    check('card by identifier: signed-in user, owner, client details',
+          card.locator('[data-match="identifier"]').count() == 1 and 'Signed-in user' in text
+          and attr_list('[data-account="100"] [data-role]', 'data-role') == ['owner']
+          and 'since 2024-03-01' in account and 'owner@example.test' in account, account)
+    check('card summary: credit, unpaid total after payments, overdue and ticket counts',
+          '$5.00 USD' in part('[data-stat="credit"]') and '$25.00 USD' in part('[data-stat="unpaid"]')
+          and part('[data-stat="overdue"]').strip().endswith('1') and part('[data-stat="tickets"]').strip().endswith('1'),
+          [part(f'[data-stat="{k}"]') for k in ('credit', 'unpaid', 'overdue', 'tickets')])
     check('card services: active first, product names, next due',
-          0 <= text.find('Starter Hosting') < text.find('Legacy Plan')
-          and 'next due 2026-11-15' in text and 'SERVICES (2)' in text.upper(), text)
+          attr_list('[data-service]', 'data-service') == ['500', '502'] and 'Starter Hosting' in part('[data-service="500"]')
+          and 'next due 2026-11-15' in part('[data-service="500"]') and '1 active / 2' in account, account)
     check('card invoices: balance after payments, overdue flagged',
-          '#700 $10.00 USD' in text and 'overdue' in text and '#INV-702 $15.00 USD' in text, text)
-    check('card tickets: open only, merged and closed left out',
-          '#ABC123' in text and 'OLD111' not in text and 'MRG222' not in text and 'XYZ999' not in text, text)
-    hrefs = page.frame_locator('#dashboard-app--frame-0-0').locator('a').evaluate_all('els => els.map(e => e.href)')
+          '$10.00 USD' in part('[data-invoice="700"]') and 'Overdue' in part('[data-invoice="700"]')
+          and 'INV-702' in part('[data-invoice="702"]') and '$15.00 USD' in part('[data-invoice="702"]')
+          and 'Overdue' not in part('[data-invoice="702"]'), [part('[data-invoice="700"]'), part('[data-invoice="702"]')])
+    check('card tickets: open only, merged and closed left out', attr_list('[data-ticket]', 'data-ticket') == ['ABC123'],
+          attr_list('[data-ticket]', 'data-ticket'))
+    hrefs = card.locator('a').evaluate_all('els => els.map(e => e.href)')
     check('card links go to the configured admin folder',
           hrefs and all(h.startswith('https://billing.example.test/staffpanel/') for h in hrefs)
           and 'https://billing.example.test/staffpanel/clientssummary.php?userid=100' in hrefs
           and 'https://billing.example.test/staffpanel/invoices.php?action=edit&id=700' in hrefs, hrefs)
     check('card asked Chatwoot for the context (fetch-info)', page.evaluate('window.__fetchInfo') >= 1)
 
+    # every text over its own background: 4.5:1 or more, light and dark
+    contrast_js = """() => {
+      const rgb = s => (s.match(/[\\d.]+/g) || []).map(Number);
+      const lum = c => { const [r, g, b] = c.slice(0, 3).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const bg = node => { for (let n = node; n; n = n.parentElement) { const c = rgb(getComputedStyle(n).backgroundColor); if (c.length >= 3 && (c.length < 4 || c[3] > 0)) return c; } return null; };
+      const pageBg = window.__pageBg;
+      const worst = [];
+      for (const node of document.querySelectorAll('#card *')) {
+        if (![...node.childNodes].some(t => t.nodeType === 3 && t.textContent.trim())) continue;
+        const fg = rgb(getComputedStyle(node).color), back = bg(node) || pageBg;
+        const [a, b] = [lum(fg), lum(back)].sort((x, y) => y - x);
+        const ratio = (a + 0.05) / (b + 0.05);
+        if (ratio < 4.5) worst.push([node.textContent.trim().slice(0, 30), ratio.toFixed(2)]);
+      }
+      return worst;
+    }"""
+    for theme, page_bg in (('light', [247, 247, 247]), ('dark', [28, 29, 32])):
+        open_card(owner, theme=theme)
+        frame = page.query_selector('#dashboard-app--frame-0-0').content_frame()
+        frame.evaluate(f'() => {{ window.__pageBg = {page_bg}; }}')
+        low = frame.evaluate(contrast_js)
+        check(f'card text contrast 4.5:1 or more in the {theme} theme', not low, low)
+        if os.environ.get('CW_STAND_SHOTS'):
+            for width in (640, 380):
+                q = urllib.parse.urlencode({'app': stand.app, 'contact': json.dumps(owner), 'theme': theme, 'width': width})
+                page.set_viewport_size({'width': width, 'height': 1000})
+                page.goto(f'http://chat.example.test:{stand.chat_port}/?{q}')
+                time.sleep(1.2)
+                page.screenshot(path=os.path.join(os.environ['CW_STAND_SHOTS'], f'card-{theme}-{width}.png'), full_page=True)
+            page.set_viewport_size({'width': 1280, 'height': 1000})
+
     text = open_card({'id': 2, 'name': 'Ivan', 'email': 'invited@example.test', 'identifier': 'whmcs:u:11'})
-    check('card for an invited user: the account, marked as invited user', 'Acme' in text and 'invited user' in text, text[:300])
+    check('card for an invited user: the account, marked as invited user',
+          'Acme' in text and attr_list('[data-account="100"] [data-role]', 'data-role') == ['invited'], text[:300])
     text = open_card({'id': 3, 'name': 'Olga', 'email': 'owner@example.test'})
     check('contact without identifier: matched by email, not confirmed',
-          'matched by email, not confirmed' in text and 'Acme' in text, text[:300])
+          card.locator('[data-match="email"]').count() == 1 and 'not confirmed' in text and 'Acme' in text, text[:300])
     text = open_card({'id': 4, 'name': 'Accounts', 'email': 'accounts@example.test'})
     check('account email no user logs in with: found, not confirmed, inactive flagged',
-          'Billing Only' in text and 'not confirmed' in text and 'Inactive' in text, text[:300])
+          'Billing Only' in text and 'not confirmed' in text and 'Inactive' in part('[data-account="500"]'), text[:300])
     text = open_card({'id': 5, 'name': 'Stranger', 'email': 'stranger@example.test', 'identifier': 'whmcs:u:999'})
     check('unknown contact: no client', 'No WHMCS client for stranger@example.test' in text, text[:300])
     text = open_card({'id': 6, 'name': 'Telegram user'})
@@ -488,8 +540,8 @@ def _app_checks(stand, browser):
     check("O'Brien\\ and </script> shown as text, no JS errors",
           "O'Brien\\" in text and '</script> Test' in text and not errors, (text[:200], errors))
     open_card(owner, theme='dark')
-    body_class = page.frame_locator('#dashboard-app--frame-0-0').locator('body').get_attribute('class') or ''
-    check("Chatwoot's dark theme reaches the card", 'dark' in body_class, body_class)
+    html_class = card.locator('html').get_attribute('class') or ''
+    check("Chatwoot's dark theme reaches the card", 'dark' in html_class, html_class)
 
     frame = page.query_selector('#dashboard-app--frame-0-0').content_frame()
     status = frame.evaluate("fetch(location.pathname, {method: 'POST', body: new FormData()}).then(r => r.status)")
