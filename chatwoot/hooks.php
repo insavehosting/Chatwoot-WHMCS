@@ -161,8 +161,9 @@ function hook_chatwoot_output($vars)
                 'is_affiliate'     => $clientaffiliate,
                 'current_page'     => $currentpage,
             ],
-            'label'       => $chatwoot_setlabelloggedin,
-            'removeLabel' => $chatwoot_setlabel,
+            'label'        => $chatwoot_setlabelloggedin,
+            'removeLabel'  => $chatwoot_setlabel,
+            'conversation' => cw_page_context($vars, $ClientID),
         ];
         $handler = <<<'JS'
     window.addEventListener('chatwoot:ready', function () {
@@ -187,6 +188,9 @@ function hook_chatwoot_output($vars)
       cw.setLabel(cfg.label);
       cw.removeLabel(cfg.removeLabel);
       if (cfg.locale) cw.setLocale(cfg.locale);
+      // Chatwoot replaces the conversation's attributes with this set; with
+      // no conversation yet it keeps them for the first message.
+      if (cfg.conversation) cw.setConversationCustomAttributes(cfg.conversation);
     });
 JS;
     } elseif ($user) {
@@ -292,6 +296,45 @@ function cw_looks_like_token($segment)
     # slugs are words joined by hyphens; tokens are long runs of letters and digits
     return strlen($segment) >= 32
         || (strlen($segment) >= 20 && preg_match('/\d/', $segment) && preg_match('/^[A-Za-z0-9_.=~]+$/', $segment));
+}
+
+# What the client is looking at, for the conversation rather than the
+# contact: a service, an invoice or a ticket. The id comes from the template
+# variables (from the query string if a template lacks it); everything else
+# is read from the database, and only for an object of the current client.
+# Template values are not used as such: statuses and product names there are
+# translated, and an "invalid ticket" page still carries the requested tid.
+function cw_page_context(array $vars, $clientId)
+{
+    $page = $vars['templatefile'] ?? '';
+
+    if ($page === 'clientareaproductdetails') {
+        $id      = (int) ($vars['id'] ?? $_GET['id'] ?? 0);
+        $service = Capsule::table('tblhosting')->where('id', $id)->where('userid', $clientId)->first();
+        if (!$service) {
+            return null;
+        }
+        return [
+            'service_id'     => (int) $service->id,
+            'product'        => (string) Capsule::table('tblproducts')->where('id', $service->packageid)->value('name'),
+            'domain'         => (string) $service->domain,
+            'service_status' => (string) $service->domainstatus,
+        ];
+    }
+
+    if ($page === 'viewinvoice') {
+        $id      = (int) ($vars['invoiceid'] ?? $_GET['id'] ?? 0);
+        $invoice = Capsule::table('tblinvoices')->where('id', $id)->where('userid', $clientId)->first();
+        return $invoice ? ['invoice_id' => (int) $invoice->id, 'invoice_status' => (string) $invoice->status] : null;
+    }
+
+    if ($page === 'viewticket') {
+        $tid    = (string) ($vars['tid'] ?? $_GET['tid'] ?? '');
+        $ticket = $tid === '' ? null : Capsule::table('tbltickets')->where('tid', $tid)->where('userid', $clientId)->first();
+        return $ticket ? ['ticket_tid' => (string) $ticket->tid] : null;
+    }
+
+    return null;
 }
 
 function cw_settings()
