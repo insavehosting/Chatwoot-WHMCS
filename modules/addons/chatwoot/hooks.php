@@ -42,8 +42,11 @@ function hook_chatwoot_output($vars)
     $chatwoot_setlabelloggedin = $cw['chatwoot_setlabelloggedin'] ?? '';
     $chatwoot_admin            = $cw['chatwoot_enableonadmin'] ?? '';
 
-    # ignore if admin
-    if (empty($chatwoot_admin) && isset($_SESSION['adminid'])) {
+    # An admin session shares the browser session with the client area (also
+    # "Login as Client"). Without the setting there is no widget; with it the
+    # widget is shown but never identified, so an admin cannot chat as a client.
+    $admin_session = isset($_SESSION['adminid']);
+    if ($admin_session && empty($chatwoot_admin)) {
         return;
     }
 
@@ -99,7 +102,7 @@ function hook_chatwoot_output($vars)
         'locale'       => $chatwoot_lang,
     ];
 
-    if ($user && $client) {
+    if ($user && $client && !$admin_session) {
         # The Chatwoot contact is the WHMCS user, not the client account: a
         # user invited into someone else's account gets a contact of their
         # own instead of the owner's, with the owner's history.
@@ -194,9 +197,10 @@ function hook_chatwoot_output($vars)
     });
 JS;
     } elseif ($user) {
-        # Logged in, but no account selected yet (/user/accounts): the widget
-        # works as for a visitor and is not identified. The marker of this
-        # user's session is left alone -- this is not a logout.
+        # Logged in, but no account selected yet (/user/accounts), or an admin
+        # session: the widget works as for a visitor and is not identified.
+        # The marker of the user's session is left alone -- this is not a
+        # logout.
         $config += [
             'label'      => $chatwoot_setlabel,
             'attributes' => ['current_page' => $currentpage],

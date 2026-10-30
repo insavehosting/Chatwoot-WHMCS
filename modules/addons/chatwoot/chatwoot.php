@@ -2,7 +2,7 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot by inSave (v2.0.4-insave.2): Chatwoot live chat for the      *
+// * Chatwoot by inSave (v2.0.4-insave.3): Chatwoot live chat for the      *
 //   WHMCS client area. Requires WHMCS 8 or later.                         *
 // * Maintained by inSave Hosting OÜ:                                      *
 //   https://github.com/insavehosting/Chatwoot-WHMCS                       *
@@ -27,7 +27,7 @@ function chatwoot_config()
     return [
         "name"        => "Chatwoot by inSave",
         "description" => "Chatwoot live chat for the WHMCS client area, with signed user identity and page context. Maintained by inSave Hosting; based on <a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'>Chatwoot-WHMCS by WevrLabs</a> (MIT).",
-        "version"     => "2.0.4-insave.2",
+        "version"     => "2.0.4-insave.3",
         "author"      => "<a href='https://github.com/insavehosting/Chatwoot-WHMCS' target='_blank'>inSave Hosting</a>",
         "fields"      => [
             'chatwoot_enable'           => [
@@ -114,7 +114,7 @@ function chatwoot_config()
                 'Type'         => 'yesno',
                 'Size'         => '55',
                 'Default'      => 'no',
-                'Description'  => 'check this box to enable the chat box when admin is logged in as client (not recommended, as it may mess up real users\' sessions, so enable this option only for debugging purposes and make sure to logout of the user account to trigger session reset.',
+                'Description'  => 'Show the chat box while an admin is logged in to WHMCS in the same browser, including Login as Client. The widget is not identified in admin sessions, so an admin never chats as the client.',
             ],
         ],
     ];

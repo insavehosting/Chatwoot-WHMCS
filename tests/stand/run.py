@@ -71,7 +71,7 @@ def cli_checks():
 
     config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
     config = json.loads(config.stdout or '{}')
-    check('module version is 2.0.4-insave.2', config.get('version') == '2.0.4-insave.2', config.get('version'))
+    check('module version is 2.0.4-insave.3', config.get('version') == '2.0.4-insave.3', config.get('version'))
     check('shown as "Chatwoot by inSave", author without a third-party image',
           config.get('name') == 'Chatwoot by inSave' and '<img' not in config.get('author', '')
           and 'insavehosting/Chatwoot-WHMCS' in config.get('author', ''), (config.get('name'), config.get('author')))
@@ -156,6 +156,13 @@ class Visitor:
         run = page.evaluate('window.__cw.run')
         page.close()
         return Calls(calls, run)
+
+    def html(self, path):
+        page = self.context.new_page()
+        page.goto(self.stand.base + path)
+        content = page.content()
+        page.close()
+        return content
 
     def close(self):
         self.context.close()
@@ -295,6 +302,21 @@ def browser_checks(browser, stand):
     c = v.visit('/user/accounts')
     check('user without a client: setUser not called, no reset, visitor label',
           'setUser' not in c.names() and 'reset' not in c.names() and c.first('setLabel') == ['visitor'], c.names())
+    v.close()
+
+    # an admin logged in to WHMCS in the same browser ("Login as Client")
+    v = Visitor(browser, stand, 'owner', stand_admin=1)
+    check('admin session, setting off: no widget', 'chatwootSettings' not in v.html('/clientarea.php'))
+    v.set(stand_enableonadmin=1)
+    c = v.visit('/clientarea.php')
+    check('admin session, setting on: widget shown, never identified, no reset, visitor label',
+          'setUser' not in c.names() and 'reset' not in c.names() and c.first('setLabel') == ['visitor']
+          and 'whmcs_user_id' not in json.dumps(c.calls), c.names())
+    v.set(stand_admin='')
+    c = v.visit('/clientarea.php')
+    user = c.first('setUser')
+    check('the same client without the admin session is identified again',
+          user is not None and user[0] == 'whmcs:u:10' and 'reset' not in c.names(), c.names())
     v.close()
 
     # values that used to break the widget

@@ -38,18 +38,18 @@ Upgrading from 2.0.4: follow [docs/deploy.md](docs/deploy.md).
 | Dynamic Language | `chatwoot_lang` | widget language = client area language (table `cw_locale()` in `hooks.php`) |
 | Default non-logged In Conversation Label | `chatwoot_setlabel` | conversation label for visitors; the label must exist in Chatwoot |
 | Default Logged In Conversation Label | `chatwoot_setlabelloggedin` | conversation label for clients |
-| Enable on Login as Client | `chatwoot_enableonadmin` | show the widget to an admin logged in as a client; for debugging only |
+| Enable on Login as Client | `chatwoot_enableonadmin` | show the widget while an admin is logged in to WHMCS in the same browser (including Login as Client). The widget is never identified in an admin session, so an admin cannot chat as the client. Off: no widget in admin sessions |
 
 ## What is sent to Chatwoot
 
 Everything is set from the visitor's browser. Only the identifier is signed (HMAC): with identity validation enforced it cannot be forged. Attributes and labels can be changed by the client from the browser console, so do not base decisions about money or access on them.
 
-### Visitors, and users with no account selected
+### Visitors, users with no account selected, admin sessions
 
 - label `chatwoot_setlabel`, locale (with Dynamic Language);
 - contact attribute `current_page`.
 
-No `setUser`. For a user without a selected account (e.g. on `/user/accounts`) the widget is not reset.
+No `setUser`. For a user without a selected account (e.g. on `/user/accounts`) and in an admin session (with "Enable on Login as Client" on) the widget is not reset either.
 
 ### A user in a client account
 

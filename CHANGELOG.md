@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.4-insave.3 — 2026-10-30
+
+- **Admin sessions.** With "Enable on Login as Client" on, the widget is shown while an admin is logged in to WHMCS in the same browser, but it is never identified: no `setUser`, no reset, the visitor label. Before, "Login as Client" identified the admin as the client, who could then chat and see history as that client. With the setting off there is still no widget in admin sessions.
+
 ## 2.0.4-insave.2 — 2026-10-30
 
 Upgrading from 2.0.4 changes the contact identifier: see [docs/migrate-identifiers.md](docs/migrate-identifiers.md) before deploying.

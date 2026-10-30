@@ -26,6 +26,20 @@ if ($path === '/stand/state') {
 }
 
 cw_stand_boot($_COOKIE['stand_scenario'] ?? 'guest', 'http://' . $_SERVER['HTTP_HOST'] . '/');
+// An admin logged in to WHMCS in the same browser, and the module setting for it.
+if (!empty($_COOKIE['stand_admin'])) {
+    $_SESSION['adminid'] = 1;
+} else {
+    unset($_SESSION['adminid']);
+}
+if (!empty($_COOKIE['stand_enableonadmin'])) {
+    foreach (CwStand::$db['tbladdonmodules'] as &$row) {
+        if ($row['module'] === 'chatwoot' && $row['setting'] === 'chatwoot_enableonadmin') {
+            $row['value'] = 'on';
+        }
+    }
+    unset($row);
+}
 require getenv('CW_HOOKS') ?: dirname(__DIR__, 2) . '/modules/addons/chatwoot/hooks.php';
 
 if ($path === '/logout') {
