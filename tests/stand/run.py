@@ -47,11 +47,11 @@ def sh(*cmd, **kw):
 # --- CLI checks -------------------------------------------------------------
 
 def cli_checks():
-    for f in ('chatwoot/chatwoot.php', 'chatwoot/hooks.php', 'tools/export-identifier-map.php'):
+    for f in ('modules/addons/chatwoot/chatwoot.php', 'modules/addons/chatwoot/hooks.php', 'tools/export-identifier-map.php'):
         r = sh('php', '-l', f)
         check(f'php -l {f}', r.returncode == 0 and 'No syntax errors detected' in r.stdout, r.stdout + r.stderr)
 
-    hooks = (ROOT / 'chatwoot/hooks.php').read_text()
+    hooks = (ROOT / 'modules/addons/chatwoot/hooks.php').read_text()
     hits = [l for l in hooks.splitlines() if re.search(r"'\$[A-Za-z_]+'", l)]
     check("no '$var' inside JS strings in hooks.php", not hits, '; '.join(hits))
     check('hooks.php does not read HTTP_HOST', 'HTTP_HOST' not in hooks)
@@ -60,7 +60,7 @@ def cli_checks():
     check('current_page cases (tests/stand/current_page_test.php)', r.returncode == 0, r.stdout)
 
     upgrade = sh('php', '-r', '''
-        require "tests/stand/bootstrap.php"; cw_stand_boot("guest", "x"); require "chatwoot/chatwoot.php";
+        require "tests/stand/bootstrap.php"; cw_stand_boot("guest", "x"); require "modules/addons/chatwoot/chatwoot.php";
         chatwoot_upgrade(["version" => "2.0.4"]);
         echo json_encode(CwStand::$db["tbladdonmodules"]);''')
     rows = json.loads(upgrade.stdout or '[]')
@@ -69,7 +69,7 @@ def cli_checks():
           and any(r['module'] == 'other_module' for r in rows)
           and sum(r['module'] == 'chatwoot' for r in rows) == 14, upgrade.stdout + upgrade.stderr)
 
-    version = sh('php', '-r', 'define("WHMCS", 1); require "chatwoot/chatwoot.php"; echo chatwoot_config()["version"];')
+    version = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo chatwoot_config()["version"];')
     check('module version is 2.0.4-insave.2', version.stdout == '2.0.4-insave.2', version.stdout)
 
     export = sh('php', 'tools/export-identifier-map.php', 'tests/stand/fake-whmcs')
@@ -88,7 +88,7 @@ def cli_checks():
 
     deploy = (ROOT / 'docs/deploy.md').read_text()
     for name in ('chatwoot.php', 'hooks.php'):
-        actual = hashlib.md5((ROOT / 'chatwoot' / name).read_bytes()).hexdigest()
+        actual = hashlib.md5((ROOT / 'modules/addons/chatwoot' / name).read_bytes()).hexdigest()
         m = re.search(r'\| `' + re.escape(name) + r'` \| `([0-9a-f]{32})` \|', deploy)
         check(f'docs/deploy.md has the current md5 of {name}', m is not None and m.group(1) == actual,
               f'doc={m and m.group(1)} file={actual}')

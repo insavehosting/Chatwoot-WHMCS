@@ -8,8 +8,8 @@ Requires WHMCS 8 or later and PHP 7.4+. SDK and API behaviour checked against Ch
 
 | Path | What it is | Goes to the server |
 |---|---|---|
-| `chatwoot/chatwoot.php` | addon configuration, `chatwoot_upgrade` | `modules/addons/chatwoot/` |
-| `chatwoot/hooks.php` | the widget (`ClientAreaFooterOutput`), the reset flag on logout (`UserLogout`) | `modules/addons/chatwoot/` |
+| `modules/addons/chatwoot/chatwoot.php` | addon configuration, `chatwoot_upgrade` | yes, same path under the WHMCS root |
+| `modules/addons/chatwoot/hooks.php` | the widget (`ClientAreaFooterOutput`), the reset flag on logout (`UserLogout`) | yes, same path under the WHMCS root |
 | `tools/clear-legacy-identifiers.rb` | upgrading from 2.0.4: clears the old identifiers in Chatwoot (rails runner) | only while upgrading |
 | `tools/export-identifier-map.php`, `tools/migrate-identifiers.rb` | upgrading from 2.0.4: maps old contacts to the new identifiers instead | only while upgrading, outside the web root |
 | `docs/` | [upgrading from 2.0.4](docs/deploy.md), [contacts from 2.0.4](docs/migrate-identifiers.md) | no |
@@ -17,7 +17,7 @@ Requires WHMCS 8 or later and PHP 7.4+. SDK and API behaviour checked against Ch
 
 ## Fresh install
 
-1. Copy `chatwoot/` to `<WHMCS>/modules/addons/chatwoot/`.
+1. Copy `modules/` into the WHMCS root, so that the files land in `<WHMCS>/modules/addons/chatwoot/`.
 2. WHMCS Admin → Setup → Addon Modules → Chatwoot → Activate, then Configure.
 3. Fill in the settings below. In Chatwoot, open Inboxes → your website inbox → Configuration → Identity Validation, copy the key into "Secret Key" and turn on **Enforce user identity validation**: without it the identifier can be forged.
 

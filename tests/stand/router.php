@@ -26,7 +26,7 @@ if ($path === '/stand/state') {
 }
 
 cw_stand_boot($_COOKIE['stand_scenario'] ?? 'guest', 'http://' . $_SERVER['HTTP_HOST'] . '/');
-require getenv('CW_HOOKS') ?: dirname(__DIR__, 2) . '/chatwoot/hooks.php';
+require getenv('CW_HOOKS') ?: dirname(__DIR__, 2) . '/modules/addons/chatwoot/hooks.php';
 
 if ($path === '/logout') {
     foreach (CwStand::$hooks['UserLogout'] ?? [] as $hook) {

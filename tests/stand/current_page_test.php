@@ -2,7 +2,7 @@
 // current_page cases: php tests/stand/current_page_test.php
 require __DIR__ . '/bootstrap.php';
 cw_stand_boot('guest', 'x');
-require dirname(__DIR__, 2) . '/chatwoot/hooks.php';
+require dirname(__DIR__, 2) . '/modules/addons/chatwoot/hooks.php';
 $cases = [
  '/index.php?rp=/password/reset/redeem/9f8e7d6c5b4a39281726354453627180aabbccdd' => 'https://billing.example.test/password/reset/redeem',
  '/password/reset/redeem/abc123def456ghi789jkl012' => 'https://billing.example.test/password/reset/redeem',

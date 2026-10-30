@@ -2,7 +2,7 @@
 
 ## Files
 
-Only two files go to the server, into `<WHMCS>/modules/addons/chatwoot/`:
+Only two files go to the server, `modules/addons/chatwoot/chatwoot.php` and `hooks.php`, into the same path under the WHMCS root:
 
 | File | md5 of 2.0.4-insave.2 |
 |---|---|
@@ -26,7 +26,7 @@ What may be there now (keep a copy for a rollback):
 3. The files come from the release and their md5 match the table above:
 
    ```bash
-   md5sum chatwoot/chatwoot.php chatwoot/hooks.php
+   md5sum modules/addons/chatwoot/chatwoot.php modules/addons/chatwoot/hooks.php
    # PASS: 0b2c0c93… chatwoot.php, 03243043… hooks.php
    ```
 
@@ -38,7 +38,7 @@ What may be there now (keep a copy for a rollback):
    ```bash
    mkdir -p ~/chatwoot-backup-$(date +%Y%m%d)
    cp -p <WHMCS>/modules/addons/chatwoot/*.php ~/chatwoot-backup-$(date +%Y%m%d)/
-   # then chatwoot.php and hooks.php from the release into <WHMCS>/modules/addons/chatwoot/
+   # then copy modules/ from the release into <WHMCS>/ (only the two module files)
    md5sum <WHMCS>/modules/addons/chatwoot/*.php
    # PASS: the md5 from "Files"
    ```
