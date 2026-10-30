@@ -26,20 +26,20 @@ use WHMCS\Database\Capsule;
 function hook_chatwoot_output($vars)
 {
 
-    $isenabled              = Capsule::table('tbladdonmodules')->select('value')->where('module', '=', 'chatwoot')->where('setting', '=', 'chatwoot_enable')->where('value', 'on')->count();
-    $chatwoot_url           = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_url')->value('value');
-    $chatwoot_token         = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_token')->value('value');
-    $verification_hash      = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_verhash')->value('value');
-    $chatwoot_position      = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_position')->value('value');
-    $chatwoot_bubble        = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_bubble')->value('value');
-    $chatwoot_launcherTitle = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_launcherTitle')->value('value');
-    $chatwoot_dark          = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_dark')->value('value');
-    $chatwoot_lang_setting  = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_lang')->value('value');
-
-    $chatwoot_setlabel         = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_setlabel')->value('value');
-    $chatwoot_setlabelloggedin = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_setlabelloggedin')->value('value');
-
-    $chatwoot_admin = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->where('setting', 'chatwoot_enableonadmin')->value('value');
+    # all module settings in one query
+    $cw = cw_settings();
+    $isenabled                 = ($cw['chatwoot_enable'] ?? '') === 'on';
+    $chatwoot_url              = $cw['chatwoot_url'] ?? '';
+    $chatwoot_token            = $cw['chatwoot_token'] ?? '';
+    $verification_hash         = $cw['chatwoot_verhash'] ?? '';
+    $chatwoot_position         = $cw['chatwoot_position'] ?? 'right';
+    $chatwoot_bubble           = $cw['chatwoot_bubble'] ?? 'Standard';
+    $chatwoot_launcherTitle    = $cw['chatwoot_launcherTitle'] ?? '';
+    $chatwoot_dark             = $cw['chatwoot_dark'] ?? '';
+    $chatwoot_lang_setting     = $cw['chatwoot_lang'] ?? '';
+    $chatwoot_setlabel         = $cw['chatwoot_setlabel'] ?? '';
+    $chatwoot_setlabelloggedin = $cw['chatwoot_setlabelloggedin'] ?? '';
+    $chatwoot_admin            = $cw['chatwoot_enableonadmin'] ?? '';
 
     # ignore if admin
     if (empty($chatwoot_admin) && isset($_SESSION['adminid'])) {
@@ -98,8 +98,7 @@ function hook_chatwoot_output($vars)
     # build contact info
     if (!is_null($user)) {
 
-        $apiPostData = array('clientid' => $ClientID, 'stats' => true);
-        $apiResults  = localAPI('GetClientsDetails', $apiPostData);
+        $apiResults = cw_client_details($user->id, $ClientID);
 
         # Client Info
         $clientemail    = $apiResults['client']['email'];
@@ -159,7 +158,7 @@ function hook_chatwoot_output($vars)
     $config = [
         'baseUrl'      => $chatwoot_url,
         'websiteToken' => $chatwoot_token,
-        'locale'       => isset($chatwoot_lang) ? $chatwoot_lang : '',
+        'locale'       => $chatwoot_lang ?? '',
     ];
 
     if (!is_null($user)) {
@@ -211,8 +210,9 @@ function hook_chatwoot_output($vars)
         cw.reset();
         return;
       }
+      var userCookie = 'cw_user_' + cfg.websiteToken, before = readCookie(userCookie);
       cw.setUser(cfg.identifier, cfg.user);
-      cw.setCustomAttributes(cfg.attributes);
+      sendAttributes(cw, readCookie(userCookie) !== before);
       cw.deleteCustomAttribute('Test Attribute');
       cw.setLabel(cfg.label);
       cw.removeLabel(cfg.removeLabel);
@@ -240,12 +240,44 @@ JS;
       }
       cw.setLabel(cfg.label);
       cw.setLocale(cfg.locale);
-      cw.setCustomAttributes(cfg.attributes);
+      sendAttributes(cw, false);
     });
 JS;
     }
 
+    $config['attributesHash'] = substr(hash('sha256', cw_js([
+        $config['identifier'] ?? '',
+        $config['attributes'],
+    ])), 0, 16);
+
     return cw_widget_script($settings, $config, $handler);
+}
+
+function cw_settings()
+{
+    return Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->pluck('value', 'setting')->all();
+}
+
+# GetClientsDetails with stats is the heaviest call on the page: keep its
+# result in the session for a few minutes, per user and client.
+function cw_client_details($userId, $clientId)
+{
+    $key   = $userId . ':' . $clientId;
+    $cache = $_SESSION['insave_cw_details'] ?? null;
+    if (is_array($cache) && $cache['key'] === $key && time() - $cache['at'] < 300) {
+        return $cache['data'];
+    }
+
+    $api  = localAPI('GetClientsDetails', ['clientid' => $clientId, 'stats' => true]);
+    $data = [
+        'client'         => $api['client'] ?? [],
+        'stats'          => $api['stats'] ?? [],
+        'email_verified' => $api['email_verified'] ?? null,
+    ];
+    if (($api['result'] ?? '') === 'success') {
+        $_SESSION['insave_cw_details'] = ['key' => $key, 'at' => time(), 'data' => $data];
+    }
+    return $data;
 }
 
 # Every value reaches the page through json_encode: nothing is pasted into a
@@ -289,6 +321,28 @@ function cw_widget_script(array $settings, array $config, $handler)
     g.onload = function () {
       window.chatwootSDK.run({ websiteToken: cfg.websiteToken, baseUrl: cfg.baseUrl });
     };
+    function readCookie(name) {
+      var m = d.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+      return m ? m[1] : '';
+    }
+    // Contact attributes go out again only when they changed, or when the
+    // widget session did: a reset or a new visitor gets a new cw_conversation
+    // token. While setUser is identifying the contact, attributes may land on
+    // the contact being merged away, so the next page sends them again.
+    function sendAttributes(cw, identifying) {
+      var token = readCookie('cw_conversation'), h = 2166136261, sent = null;
+      for (var i = 0; i < token.length; i++) {
+        h = Math.imul(h ^ token.charCodeAt(i), 16777619) >>> 0;
+      }
+      var stamp = cfg.attributesHash + ':' + h.toString(16);
+      try { sent = localStorage.getItem('insave_cw_attrs'); } catch (e) {}
+      if (sent === stamp && !identifying) return;
+      cw.setCustomAttributes(cfg.attributes);
+      try {
+        if (identifying) localStorage.removeItem('insave_cw_attrs');
+        else localStorage.setItem('insave_cw_attrs', stamp);
+      } catch (e) {}
+    }
 __HANDLER__
   })(document, 'script', __CONFIG__);
 </script>
@@ -300,22 +354,13 @@ JS;
     ]);
 }
 
-$whmcsver   = cwoot_whmcs_version();
-$LogoutHook = ($whmcsver > 7) ? 'UserLogout' : 'ClientLogout';
-
 # The reset itself happens in the widget code above, once the SDK is ready:
 # the old readystatechange handler ran before window.$chatwoot existed.
-add_hook($LogoutHook, 1, function ($vars) {
+add_hook('UserLogout', 1, function ($vars) {
     $_SESSION['chatwoot_reset'] = true;
 });
 
 add_hook('ClientAreaFooterOutput', 1, 'hook_chatwoot_output');
-
-# meta
-function cwoot_whmcs_version() {
-    $whmcsversion = Capsule::table('tblconfiguration')->where('setting', 'Version')->value('value');
-    return substr($whmcsversion, 0, 1);
-}
 
 # to deal with langs
 function cw_langCode($name)
