@@ -21,6 +21,7 @@ if (!defined("WHMCS")) {
 }
 
 use WHMCS\Authentication\CurrentUser;
+use WHMCS\Config\Setting;
 use WHMCS\Database\Capsule;
 
 function hook_chatwoot_output($vars)
@@ -72,7 +73,7 @@ function hook_chatwoot_output($vars)
     $currentUser  = new CurrentUser;
     $client       = $currentUser->client();
     $user         = $currentUser->user();
-    $currentpage  = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+    $currentpage  = cw_current_page();
 
     # Fetch labels
     if (!is_null($user)) {
@@ -238,6 +239,61 @@ JS;
     ])), 0, 16);
 
     return cw_widget_script($settings, $config, $handler);
+}
+
+# The page the visitor is on, for agents: SystemURL plus the route, without
+# the query string. Routes that carry a token in the path
+# (/password/reset/redeem/<token>) are cut to the route itself, and so is
+# any path from a segment that looks like a token. The Host header is not
+# used: it is whatever the request says.
+function cw_current_page()
+{
+    $systemUrl = rtrim((string) Setting::getValue('SystemURL'), '/') . '/';
+    $uri       = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+    $path      = (string) parse_url($uri, PHP_URL_PATH);
+
+    # WHMCS installed in a subdirectory: the request path starts with it
+    $base = rtrim((string) parse_url($systemUrl, PHP_URL_PATH), '/');
+    if ($base !== '' && strpos($path, $base . '/') === 0) {
+        $path = substr($path, strlen($base));
+    }
+
+    # "index.php/route" and "index.php?rp=/route" URL formats
+    if (preg_match('~^/index\.php(/.*)?$~', $path, $m)) {
+        parse_str((string) parse_url($uri, PHP_URL_QUERY), $query);
+        if (!empty($m[1])) {
+            $path = $m[1];
+        } elseif (isset($query['rp']) && is_string($query['rp'])) {
+            $path = '/' . ltrim($query['rp'], '/');
+        }
+    }
+
+    $tokenRoutes = ['password/reset', 'user/verify', 'invite'];
+    $kept        = [];
+    foreach (explode('/', trim($path, '/')) as $segment) {
+        if ($segment === '' || cw_looks_like_token($segment)) {
+            break;
+        }
+        $route = implode('/', $kept);
+        foreach ($tokenRoutes as $tokenRoute) {
+            # nothing after the route but an action word (redeem, use)
+            if ($route === $tokenRoute || strpos($route, $tokenRoute . '/') === 0) {
+                if ($route !== $tokenRoute || !in_array($segment, ['redeem', 'use'], true)) {
+                    break 2;
+                }
+            }
+        }
+        $kept[] = $segment;
+    }
+
+    return $systemUrl . implode('/', $kept);
+}
+
+function cw_looks_like_token($segment)
+{
+    # slugs are words joined by hyphens; tokens are long runs of letters and digits
+    return strlen($segment) >= 32
+        || (strlen($segment) >= 20 && preg_match('/\d/', $segment) && preg_match('/^[A-Za-z0-9_.=~]+$/', $segment));
 }
 
 function cw_settings()
