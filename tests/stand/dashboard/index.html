@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>fake Chatwoot dashboard</title></head>
+<body>
+<!-- Stand-in for Chatwoot's Dashboard App frame (Frame.vue, v4.19.1): sends
+     the context as a JSON string on iframe load and on
+     'chatwoot-dashboard-app:fetch-info' from that iframe. -->
+<iframe id="dashboard-app--frame-0-0" style="width: 640px; height: 900px; border: 0"></iframe>
+<script>
+  var params = new URLSearchParams(location.search);
+  var contact = JSON.parse(params.get('contact') || 'null');
+  var frame = document.getElementById('dashboard-app--frame-0-0');
+  window.__fetchInfo = 0;
+
+  function send() {
+    frame.contentWindow.postMessage(JSON.stringify({
+      event: 'appContext',
+      data: {
+        conversation: { id: 7, meta: { sender: contact } },
+        contact: contact,
+        currentAgent: { id: 1, name: 'Agent', email: 'agent@example.test' },
+        customAttributes: [],
+        theme: params.get('theme') || 'light'
+      }
+    }), '*');
+  }
+
+  window.addEventListener('message', function (event) {
+    if (event.source === frame.contentWindow && event.data === 'chatwoot-dashboard-app:fetch-info') {
+      window.__fetchInfo++;
+      send();
+    }
+  });
+  frame.addEventListener('load', send);
+  frame.src = params.get('app');
+</script>
+</body>
+</html>

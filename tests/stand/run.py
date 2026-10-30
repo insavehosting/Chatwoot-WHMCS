@@ -11,11 +11,14 @@ import hmac
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -47,7 +50,8 @@ def sh(*cmd, **kw):
 # --- CLI checks -------------------------------------------------------------
 
 def cli_checks():
-    for f in ('modules/addons/chatwoot/chatwoot.php', 'modules/addons/chatwoot/hooks.php', 'tools/export-identifier-map.php'):
+    for f in ('modules/addons/chatwoot/chatwoot.php', 'modules/addons/chatwoot/hooks.php',
+              'modules/addons/chatwoot/app.php', 'tools/export-identifier-map.php'):
         r = sh('php', '-l', f)
         check(f'php -l {f}', r.returncode == 0 and 'No syntax errors detected' in r.stdout, r.stdout + r.stderr)
 
@@ -340,6 +344,180 @@ def browser_checks(browser, stand):
         v.close()
 
 
+# --- The WHMCS card (app.php) in a fake Chatwoot dashboard ---------------------
+
+APP_INIT = """<?php
+// Stand-in for WHMCS's init.php: the session, the stubs and the test data.
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+require getenv('CW_STAND_DIR') . '/bootstrap.php';
+cw_stand_boot('guest', getenv('CW_CHATWOOT_URL'));
+"""
+
+
+class AppStand:
+    """A throwaway WHMCS root on billing.example.test and the fake Chatwoot
+    dashboard on chat.example.test: one site, two origins. evil.test is
+    another site."""
+
+    def __init__(self):
+        self.whmcs_port, self.chat_port = free_port(), free_port()
+        self.root = Path(tempfile.mkdtemp(prefix='cw-whmcs-'))
+        module = self.root / 'modules/addons/chatwoot'
+        module.mkdir(parents=True)
+        for f in (ROOT / 'modules/addons/chatwoot').glob('*.php'):
+            shutil.copy(f, module / f.name)
+        (self.root / 'init.php').write_text(APP_INIT)
+        self.origin = f'http://chat.example.test:{self.chat_port}'
+        env = dict(os.environ, CW_STAND_DIR=str(STAND), CW_CHATWOOT_URL=self.origin + '/')
+        self.procs = [
+            subprocess.Popen(['php', '-S', f'127.0.0.1:{self.whmcs_port}', '-t', str(self.root),
+                              str(STAND / 'app_router.php')], env=env,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
+            subprocess.Popen(['php', '-S', f'127.0.0.1:{self.chat_port}', '-t', str(STAND / 'dashboard')],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
+        ]
+        for port in (self.whmcs_port, self.chat_port):
+            for _ in range(50):
+                try:
+                    socket.create_connection(('127.0.0.1', port), timeout=0.2).close()
+                    break
+                except OSError:
+                    time.sleep(0.1)
+        self.app = f'http://billing.example.test:{self.whmcs_port}/modules/addons/chatwoot/app.php'
+        self.direct = f'http://127.0.0.1:{self.whmcs_port}/modules/addons/chatwoot/app.php'
+
+    def stop(self):
+        for proc in self.procs:
+            proc.terminate()
+            proc.wait()
+        shutil.rmtree(self.root, ignore_errors=True)
+
+
+def app_checks(p):
+    stand = AppStand()
+    browser = p.chromium.launch(args=['--host-resolver-rules=MAP *.example.test 127.0.0.1, MAP evil.test 127.0.0.1'])
+    try:
+        _app_checks(stand, browser)
+    finally:
+        browser.close()
+        stand.stop()
+
+
+def _app_checks(stand, browser):
+    # plain HTTP, no session
+    with urllib.request.urlopen(stand.direct) as r:
+        headers, body = r.headers, r.read().decode()
+    check('card: CSP frame-ancestors is the Chatwoot origin only',
+          headers.get('Content-Security-Policy') == f'frame-ancestors {stand.origin}', headers.get('Content-Security-Policy'))
+    check('card: no X-Frame-Options, Cache-Control no-store, Referrer-Policy no-referrer',
+          headers.get('X-Frame-Options') is None and headers.get('Cache-Control') == 'no-store'
+          and headers.get('Referrer-Policy') == 'no-referrer', dict(headers))
+    check('card without a session: login link to the admin folder, no token, no data',
+          'Log in to WHMCS admin' in body and 'https://billing.example.test/staffpanel/' in body
+          and 'CWAPP' not in body and '@' not in body, body[:300])
+    form = urllib.parse.urlencode({'identifier': 'whmcs:u:10', 'email': 'owner@example.test', 'token': 'x'}).encode()
+    try:
+        urllib.request.urlopen(stand.direct, data=form)
+        status, answer = 200, ''
+    except urllib.error.HTTPError as e:
+        status, answer = e.code, e.read().decode()
+    check('card POST without a session: 403, no email or amounts in the answer',
+          status == 403 and '@' not in answer and '$' not in answer and 'login' in answer, (status, answer))
+
+    ctx = browser.new_context()
+    page = ctx.new_page()
+    errors = []
+    page.on('pageerror', lambda e: errors.append(str(e)))
+    page.on('console', lambda m: m.type == 'error' and 'frame-ancestors' not in m.text and errors.append(m.text))
+
+    def open_card(contact, theme='light', host='chat.example.test'):
+        q = urllib.parse.urlencode({'app': stand.app, 'contact': json.dumps(contact), 'theme': theme})
+        page.goto(f'http://{host}:{stand.chat_port}/?{q}')
+        body = page.frame_locator('#dashboard-app--frame-0-0').locator('body')
+        text = ''
+        for _ in range(60):
+            try:
+                text = body.inner_text(timeout=500)
+            except Exception:
+                text = ''
+            if text and 'Waiting for the conversation' not in text and 'Loading' not in text:
+                break
+            time.sleep(0.1)
+        return text
+
+    owner = {'id': 1, 'name': 'Olga Owner', 'email': 'owner@example.test', 'identifier': 'whmcs:u:10'}
+    text = open_card(owner)
+    check('card in Chatwoot without an admin session: login link, no data',
+          'Log in to WHMCS admin' in text and 'Acme' not in text, text[:200])
+
+    page.goto(f'http://billing.example.test:{stand.whmcs_port}/stand/admin?id=1')
+    text = open_card(owner)
+    check('admin session reaches the iframe (same site): the card loads', 'Acme' in text, text[:300])
+    check('card by identifier: signed-in user, owner, client details and credit',
+          'signed-in user' in text and 'owner' in text and 'client since 2024-03-01' in text
+          and 'credit $5.00 USD' in text and 'owner@example.test' in text, text)
+    check('card services: active first, product names, next due',
+          0 <= text.find('Starter Hosting') < text.find('Legacy Plan')
+          and 'next due 2026-11-15' in text and 'SERVICES (2)' in text.upper(), text)
+    check('card invoices: balance after payments, overdue flagged',
+          '#700 $10.00 USD' in text and 'overdue' in text and '#INV-702 $15.00 USD' in text, text)
+    check('card tickets: open only, merged and closed left out',
+          '#ABC123' in text and 'OLD111' not in text and 'MRG222' not in text and 'XYZ999' not in text, text)
+    hrefs = page.frame_locator('#dashboard-app--frame-0-0').locator('a').evaluate_all('els => els.map(e => e.href)')
+    check('card links go to the configured admin folder',
+          hrefs and all(h.startswith('https://billing.example.test/staffpanel/') for h in hrefs)
+          and 'https://billing.example.test/staffpanel/clientssummary.php?userid=100' in hrefs
+          and 'https://billing.example.test/staffpanel/invoices.php?action=edit&id=700' in hrefs, hrefs)
+    check('card asked Chatwoot for the context (fetch-info)', page.evaluate('window.__fetchInfo') >= 1)
+
+    text = open_card({'id': 2, 'name': 'Ivan', 'email': 'invited@example.test', 'identifier': 'whmcs:u:11'})
+    check('card for an invited user: the account, marked as invited user', 'Acme' in text and 'invited user' in text, text[:300])
+    text = open_card({'id': 3, 'name': 'Olga', 'email': 'owner@example.test'})
+    check('contact without identifier: matched by email, not confirmed',
+          'matched by email, not confirmed' in text and 'Acme' in text, text[:300])
+    text = open_card({'id': 4, 'name': 'Accounts', 'email': 'accounts@example.test'})
+    check('account email no user logs in with: found, not confirmed, inactive flagged',
+          'Billing Only' in text and 'not confirmed' in text and 'Inactive' in text, text[:300])
+    text = open_card({'id': 5, 'name': 'Stranger', 'email': 'stranger@example.test', 'identifier': 'whmcs:u:999'})
+    check('unknown contact: no client', 'No WHMCS client for stranger@example.test' in text, text[:300])
+    text = open_card({'id': 6, 'name': 'Telegram user'})
+    check('contact without email or identifier (Telegram): says so', 'no contact with an email' in text, text[:300])
+    text = open_card({'id': 7, 'name': 'T', 'email': 'tricky@example.test', 'identifier': 'whmcs:u:30'})
+    check("O'Brien\\ and </script> shown as text, no JS errors",
+          "O'Brien\\" in text and '</script> Test' in text and not errors, (text[:200], errors))
+    open_card(owner, theme='dark')
+    body_class = page.frame_locator('#dashboard-app--frame-0-0').locator('body').get_attribute('class') or ''
+    check("Chatwoot's dark theme reaches the card", 'dark' in body_class, body_class)
+
+    frame = page.query_selector('#dashboard-app--frame-0-0').content_frame()
+    status = frame.evaluate("fetch(location.pathname, {method: 'POST', body: new FormData()}).then(r => r.status)")
+    check('card POST without the CSRF token: 403', status == 403, status)
+
+    page.goto(stand.app)
+    page.evaluate("""() => window.postMessage(JSON.stringify({event: 'appContext',
+        data: {contact: {identifier: 'whmcs:u:10', email: 'owner@example.test'}}}), '*')""")
+    time.sleep(1)
+    check('context from another origin is ignored', 'Waiting for the conversation' in page.inner_text('body'))
+
+    page.goto(f'http://evil.test:{stand.chat_port}/?' + urllib.parse.urlencode(
+        {'app': stand.app, 'contact': json.dumps(owner)}))
+    time.sleep(1.5)
+    framed = page.query_selector('#dashboard-app--frame-0-0').content_frame()
+    framed_url = framed.url if framed else ''
+    framed_text = framed.evaluate('document.body ? document.body.innerText : ""') if framed else ''
+    check('another site cannot frame the card (frame-ancestors)',
+          framed_url.startswith('chrome-error://') and 'Acme' not in framed_text, (framed_url, framed_text[:100]))
+
+    for admin, expected, name in ((2, 'no access to this card', 'admin role without Access Control: note, no data'),
+                                  (3, 'Log in to WHMCS admin', 'disabled admin: treated as logged out')):
+        page.goto(f'http://billing.example.test:{stand.whmcs_port}/stand/admin?id={admin}')
+        text = open_card(owner)
+        check(name, expected in text and 'Acme' not in text, text[:200])
+    ctx.close()
+
+
 def main():
     cli_checks()
     stand = Stand()
@@ -350,6 +528,7 @@ def main():
                 browser_checks(browser, stand)
             finally:
                 browser.close()
+            app_checks(p)
     finally:
         stand.stop()
     print(f'\n{"FAILED: " + str(len(failed)) if failed else "ALL PASS"}')
