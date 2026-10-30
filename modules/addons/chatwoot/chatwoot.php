@@ -2,16 +2,15 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot WHMCS Addon (v2.0.4-insave.2, fork of WevrLabs 2.0.4).        *
-// * This addon module enables you to integrate Chatwoot with your WHMCS    *
-//   and leverage its powerful features.                                   *
-// * Requires WHMCS 8 or later.                                            *
-// * For assistance on how to use and setup Chatwoot, visit                *
-//   https://www.chatwoot.com/docs/channels/website                        *
+// * Chatwoot by inSave (v2.0.4-insave.2): Chatwoot live chat for the      *
+//   WHMCS client area. Requires WHMCS 8 or later.                         *
+// * Maintained by inSave Hosting OÜ:                                      *
+//   https://github.com/insavehosting/Chatwoot-WHMCS                       *
 // *                                                                       *
 // *************************************************************************
 // *                                                                       *
-// * Contributed by: WevrLabs Hosting                                      *
+// * Based on Chatwoot-WHMCS 2.0.4 by WevrLabs Hosting (MIT):              *
+//   https://github.com/WevrLabs-Group/Chatwoot-WHMCS                      *
 // * Email: hello@wevrlabs.net                                             *
 // * Website: https://wevrlabs.net                                         *
 // *                                                                       *
@@ -26,10 +25,10 @@ use WHMCS\Database\Capsule;
 function chatwoot_config()
 {
     return [
-        "name"        => "Chatwoot",
-        "description" => "Chatwoot is a customer support tool for instant messaging channels that can help businesses provide exceptional customer support. WHMCS module contributed by: <a href='https://wevrlabs.net/?utm_source=addon_link' target='_blank'>WevrLabs Hosting</a>",
+        "name"        => "Chatwoot by inSave",
+        "description" => "Chatwoot live chat for the WHMCS client area, with signed user identity and page context. Maintained by inSave Hosting; based on <a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'>Chatwoot-WHMCS by WevrLabs</a> (MIT).",
         "version"     => "2.0.4-insave.2",
-        "author"      => "<a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'><img src='https://dash.wevrlabs.net/logo.svg' alt='Contributed by WevrLabs Hosting' width='135px' /></a>",
+        "author"      => "<a href='https://github.com/insavehosting/Chatwoot-WHMCS' target='_blank'>inSave Hosting</a>",
         "fields"      => [
             'chatwoot_enable'           => [
                 'FriendlyName' => 'Enable Chatwoot',

@@ -69,8 +69,12 @@ def cli_checks():
           and any(r['module'] == 'other_module' for r in rows)
           and sum(r['module'] == 'chatwoot' for r in rows) == 14, upgrade.stdout + upgrade.stderr)
 
-    version = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo chatwoot_config()["version"];')
-    check('module version is 2.0.4-insave.2', version.stdout == '2.0.4-insave.2', version.stdout)
+    config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
+    config = json.loads(config.stdout or '{}')
+    check('module version is 2.0.4-insave.2', config.get('version') == '2.0.4-insave.2', config.get('version'))
+    check('shown as "Chatwoot by inSave", author without a third-party image',
+          config.get('name') == 'Chatwoot by inSave' and '<img' not in config.get('author', '')
+          and 'insavehosting/Chatwoot-WHMCS' in config.get('author', ''), (config.get('name'), config.get('author')))
 
     export = sh('php', 'tools/export-identifier-map.php', 'tests/stand/fake-whmcs')
     rows = dict(reversed(line.split(',')) for line in export.stdout.split()[1:])

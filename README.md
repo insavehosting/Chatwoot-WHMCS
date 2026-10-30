@@ -1,6 +1,6 @@
-# Chatwoot for WHMCS
+# Chatwoot by inSave
 
-A WHMCS addon that puts the [Chatwoot](https://www.chatwoot.com) website widget into the client area and identifies the logged-in user in Chatwoot. Fork of [WevrLabs-Group/Chatwoot-WHMCS](https://github.com/WevrLabs-Group/Chatwoot-WHMCS) 2.0.4; what changed is in [CHANGELOG.md](CHANGELOG.md).
+A WHMCS addon that puts the [Chatwoot](https://www.chatwoot.com) website widget into the client area and identifies the logged-in user in Chatwoot. Maintained by inSave Hosting OÜ; based on [WevrLabs-Group/Chatwoot-WHMCS](https://github.com/WevrLabs-Group/Chatwoot-WHMCS) 2.0.4. What changed is in [CHANGELOG.md](CHANGELOG.md).
 
 Requires WHMCS 8 or later and PHP 7.4+. SDK and API behaviour checked against Chatwoot v4.19.1.
 
@@ -18,7 +18,7 @@ Requires WHMCS 8 or later and PHP 7.4+. SDK and API behaviour checked against Ch
 ## Fresh install
 
 1. Copy `modules/` into the WHMCS root, so that the files land in `<WHMCS>/modules/addons/chatwoot/`.
-2. WHMCS Admin → Setup → Addon Modules → Chatwoot → Activate, then Configure.
+2. WHMCS Admin → Setup → Addon Modules → Chatwoot by inSave → Activate, then Configure.
 3. Fill in the settings below. In Chatwoot, open Inboxes → your website inbox → Configuration → Identity Validation, copy the key into "Secret Key" and turn on **Enforce user identity validation**: without it the identifier can be forged.
 
 Upgrading from 2.0.4: follow [docs/deploy.md](docs/deploy.md).
@@ -131,4 +131,6 @@ Needs php 8.x, ruby and Playwright for Python with Chromium. The stand renders t
 
 ## License
 
-MIT, © 2020 WevrLabs Group (see [LICENSE](LICENSE)). Changes in this fork are under the same license.
+MIT (see [LICENSE](LICENSE)): © 2020 WevrLabs Group, © 2026 inSave Hosting OÜ.
+
+Chatwoot is a trademark of its owner. This project is not affiliated with or endorsed by Chatwoot.

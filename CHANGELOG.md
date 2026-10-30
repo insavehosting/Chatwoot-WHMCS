@@ -21,6 +21,7 @@ Upgrading from 2.0.4 changes the contact identifier: see [docs/migrate-identifie
 - **Widget locale** from an explicit table of WHMCS languages and Chatwoot 4.19.1 locales. Languages Chatwoot lacks get no `setLocale`.
 - **`chatwoot_upgrade`** deletes the stale `chatwoot_jscode` setting.
 - The logout hook is registered as `UserLogout` without reading the WHMCS version on every request. WHMCS 8 or later is required.
+- Shown in WHMCS as **Chatwoot by inSave**, maintained by inSave Hosting OÜ. The author field no longer loads an image from a third-party site. The module's system name stays `chatwoot`, so its settings carry over.
 - The module lives in `modules/addons/chatwoot/`, as in a WHMCS install: copy `modules/` into the WHMCS root.
 - Local test stand: `python3 tests/stand/run.py`.
 
