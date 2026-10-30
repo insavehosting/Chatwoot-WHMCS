@@ -7,7 +7,7 @@ Only two files go to the server, into `<WHMCS>/modules/addons/chatwoot/`:
 | File | md5 of 2.0.4-insave.2 |
 |---|---|
 | `chatwoot.php` | `0b2c0c93b914cf0ef19f233e60a9bd9d` |
-| `hooks.php` | `4fd9216351235b7ea840641118ebb657` |
+| `hooks.php` | `03243043bcdcc0269357ec10f073e193` |
 
 What may be there now (keep a copy for a rollback):
 
@@ -27,7 +27,7 @@ What may be there now (keep a copy for a rollback):
 
    ```bash
    md5sum chatwoot/chatwoot.php chatwoot/hooks.php
-   # PASS: 0b2c0c93… chatwoot.php, 4fd92163… hooks.php
+   # PASS: 0b2c0c93… chatwoot.php, 03243043… hooks.php
    ```
 
 ## Order

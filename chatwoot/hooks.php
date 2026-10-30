@@ -111,22 +111,22 @@ function hook_chatwoot_output($vars)
         $apiResults = cw_client_details($user->id, $ClientID);
 
         # Client Info
-        $clientphone    = $apiResults['client']['phonenumberformatted'];
-        $clientcompany  = $apiResults['client']['companyname'];
-        $clientcountry  = $apiResults['client']['countryname'];
-        $clientcity     = $apiResults['client']['city'];
-        $clientstate    = $apiResults['client']['fullstate'];
-        $clientpostcode = $apiResults['client']['postcode'];
-        $clientlang     = $apiResults['client']['language'];
+        $clientphone    = $apiResults['client']['phonenumberformatted'] ?? '';
+        $clientcompany  = $apiResults['client']['companyname'] ?? '';
+        $clientcountry  = $apiResults['client']['countryname'] ?? '';
+        $clientcity     = $apiResults['client']['city'] ?? '';
+        $clientstate    = $apiResults['client']['fullstate'] ?? '';
+        $clientpostcode = $apiResults['client']['postcode'] ?? '';
+        $clientlang     = $apiResults['client']['language'] ?? '';
 
         # Extra Meta
-        $clienttickets          = (int) $apiResults['stats']['numactivetickets'];
-        $clientcredit           = $apiResults['stats']['creditbalance'];
-        $clientrevenue          = $apiResults['stats']['income'];
-        $clientunpaid           = (int) $apiResults['stats']['numunpaidinvoices'];
-        $clientunpaidtotal      = $apiResults['stats']['unpaidinvoicesamount'];
-        $clientoverdue          = (int) $apiResults['stats']['numoverdueinvoices'];
-        $clientoverduetotal     = $apiResults['stats']['overdueinvoicesbalance'];
+        $clienttickets          = (int) ($apiResults['stats']['numactivetickets'] ?? 0);
+        $clientcredit           = $apiResults['stats']['creditbalance'] ?? '';
+        $clientrevenue          = $apiResults['stats']['income'] ?? '';
+        $clientunpaid           = (int) ($apiResults['stats']['numunpaidinvoices'] ?? 0);
+        $clientunpaidtotal      = $apiResults['stats']['unpaidinvoicesamount'] ?? '';
+        $clientoverdue          = (int) ($apiResults['stats']['numoverdueinvoices'] ?? 0);
+        $clientoverduetotal     = $apiResults['stats']['overdueinvoicesbalance'] ?? '';
         $clientaffiliate        = !empty($apiResults['stats']['isAffiliate']);
         $clientemailverified    = !empty($apiResults['email_verified']);
 
