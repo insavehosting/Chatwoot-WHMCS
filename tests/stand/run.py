@@ -75,7 +75,7 @@ def cli_checks():
 
     config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
     config = json.loads(config.stdout or '{}')
-    check('module version is 2.0.4-insave.5', config.get('version') == '2.0.4-insave.5', config.get('version'))
+    check('module version is 2.0.4-insave.6', config.get('version') == '2.0.4-insave.6', config.get('version'))
     check('shown as "Chatwoot by inSave", author without a third-party image',
           config.get('name') == 'Chatwoot by inSave' and '<img' not in config.get('author', '')
           and 'insavehosting/Chatwoot-WHMCS' in config.get('author', ''), (config.get('name'), config.get('author')))
@@ -514,6 +514,9 @@ def _app_checks(stand, browser):
         frame.evaluate(f'() => {{ window.__pageBg = {page_bg}; }}')
         low = frame.evaluate(contrast_js)
         check(f'card text contrast 4.5:1 or more in the {theme} theme', not low, low)
+        page_color = frame.evaluate('getComputedStyle(document.body).backgroundColor')
+        check(f"card page on Chatwoot's main background in the {theme} theme",
+              page_color == 'rgb({}, {}, {})'.format(*page_bg), page_color)
         if os.environ.get('CW_STAND_SHOTS'):
             for width in (640, 380):
                 q = urllib.parse.urlencode({'app': stand.app, 'contact': json.dumps(owner), 'theme': theme, 'width': width})

@@ -304,24 +304,26 @@ function cwapp_page($admin, $origin)
 }
 
 # Colors are Chatwoot's own (v4.19.1 tokens, light and dark), so the card
-# reads as part of the dashboard. A few pill texts are a step darker than the
-# tokens in the light theme to keep small text at 4.5:1 or more.
+# reads as part of the dashboard. The page is Chatwoot's main background
+# (--background-color, as in its sidebar): the pane under the iframe is
+# near-white and would leave the white card on white. A few pill texts are a
+# step darker than the tokens in the light theme to keep small text at 4.5:1
+# or more.
 function cwapp_style()
 {
-    $light = '--text: 28 32 36; --muted: 96 100 108; --surface: 255 255 255; --raised: 249 249 251; --border: 226 227 231;'
+    $light = '--page: 247 247 247; --text: 28 32 36; --muted: 96 100 108; --surface: 255 255 255; --raised: 249 249 251; --border: 226 227 231;'
         . ' --link: 8 109 224; --focus: 39 129 246;'
         . ' --green-bg: 224 248 243; --green: 0 105 92; --amber-bg: 255 247 194; --amber: 135 80 0;'
         . ' --red-bg: 254 234 237; --red: 202 36 77; --blue-bg: 233 243 255; --blue: 0 90 190;'
         . ' --gray-bg: 240 240 243; --gray: 96 100 108; --iris-bg: 240 241 254; --iris: 87 83 198;';
-    $dark = '--text: 237 238 240; --muted: 176 180 186; --surface: 29 30 36; --raised: 33 34 37; --border: 46 45 50;'
+    $dark = '--page: 28 29 32; --text: 237 238 240; --muted: 176 180 186; --surface: 29 30 36; --raised: 33 34 37; --border: 46 45 50;'
         . ' --link: 126 182 255; --focus: 39 129 246;'
         . ' --green-bg: 13 45 42; --green: 11 216 182; --amber-bg: 48 32 8; --amber: 255 202 22;'
         . ' --red-bg: 58 20 30; --red: 255 148 157; --blue-bg: 15 39 72; --blue: 126 182 255;'
         . ' --gray-bg: 39 42 45; --gray: 176 180 186; --iris-bg: 32 34 72; --iris: 158 177 255;';
 
     # No color-scheme: Chatwoot does not set one, and an iframe whose scheme
-    # differs from its parent's gets an opaque canvas instead of showing the
-    # dashboard's background through.
+    # differs from its parent's gets the browser's default canvas.
     return ':root { ' . $light . ' }'
         . ' @media (prefers-color-scheme: dark) { :root:not(.light) { ' . $dark . ' } }'
         . ' :root.dark { ' . $dark . ' }'
@@ -329,7 +331,7 @@ function cwapp_style()
 
 * { box-sizing: border-box; }
 html { scrollbar-color: rgb(var(--border)) transparent; scrollbar-width: thin; }
-body { margin: 0; padding: 12px; background: transparent; color: rgb(var(--text));
+body { margin: 0; padding: 12px; background: rgb(var(--page)); color: rgb(var(--text));
   font: 13px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
 a { color: rgb(var(--link)); text-decoration: none; }
 a:hover { text-decoration: underline; }

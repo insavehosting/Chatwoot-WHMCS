@@ -8,9 +8,10 @@
 <iframe id="dashboard-app--frame-0-0" style="display: block; width: 640px; height: 900px; border: 0"></iframe>
 <script>
   var params = new URLSearchParams(location.search);
-  // Chatwoot's page background (--background-color), light and dark
+  // What Chatwoot 4.19.1 has under the iframe: the conversation pane,
+  // bg-n-surface-1, light and dark
   document.body.style.margin = '0';
-  document.body.style.background = params.get('theme') === 'dark' ? 'rgb(28 29 32)' : 'rgb(247 247 247)';
+  document.body.style.background = params.get('theme') === 'dark' ? 'rgb(20 21 23)' : 'rgb(254 254 254)';
   if (params.get('width')) document.getElementById('dashboard-app--frame-0-0').style.width = params.get('width') + 'px';
   var contact = JSON.parse(params.get('contact') || 'null');
   var frame = document.getElementById('dashboard-app--frame-0-0');
