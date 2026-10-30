@@ -10,7 +10,7 @@ const CW_STAND_TOKEN = 'standWebsiteToken';
 function cw_stand_boot(string $scenario, string $chatwootUrl): void
 {
     $settings = [
-        'access'                    => '',
+        'access'                    => '1',
         'chatwoot_bubble'           => 'Expanded Bubble',
         'chatwoot_dark'             => 'on',
         'chatwoot_enable'           => 'on',
@@ -44,19 +44,63 @@ function cw_stand_boot(string $scenario, string $chatwootUrl): void
         ['auth_user_id' => 41, 'client_id' => 400, 'owner' => 1],
     ];
     CwStand::$db['tblhosting'] = [
-        ['id' => 500, 'userid' => 100, 'packageid' => 7, 'domain' => 'acme.example', 'domainstatus' => 'Active'],
-        ['id' => 501, 'userid' => 300, 'packageid' => 7, 'domain' => 'other.example', 'domainstatus' => 'Suspended'],
+        ['id' => 500, 'userid' => 100, 'packageid' => 7, 'domain' => 'acme.example', 'domainstatus' => 'Active',
+         'nextduedate' => '2026-11-15', 'amount' => '4.99', 'billingcycle' => 'Monthly'],
+        ['id' => 501, 'userid' => 300, 'packageid' => 7, 'domain' => 'other.example', 'domainstatus' => 'Suspended',
+         'nextduedate' => '2026-10-01', 'amount' => '4.99', 'billingcycle' => 'Monthly'],
+        ['id' => 502, 'userid' => 100, 'packageid' => 8, 'domain' => 'old.example', 'domainstatus' => 'Terminated',
+         'nextduedate' => '0000-00-00', 'amount' => '9.99', 'billingcycle' => 'Annually'],
     ];
     CwStand::$db['tblproducts'] = [
         ['id' => 7, 'name' => 'Starter Hosting'],
+        ['id' => 8, 'name' => 'Legacy Plan'],
     ];
     CwStand::$db['tblinvoices'] = [
-        ['id' => 700, 'userid' => 100, 'status' => 'Unpaid'],
-        ['id' => 701, 'userid' => 300, 'status' => 'Paid'],
+        ['id' => 700, 'userid' => 100, 'invoicenum' => '', 'status' => 'Unpaid', 'duedate' => '2026-01-10', 'total' => '10.00'],
+        ['id' => 701, 'userid' => 300, 'invoicenum' => '', 'status' => 'Paid', 'duedate' => '2026-01-10', 'total' => '4.99'],
+        ['id' => 702, 'userid' => 100, 'invoicenum' => 'INV-702', 'status' => 'Unpaid', 'duedate' => '2099-01-01', 'total' => '20.00'],
+    ];
+    CwStand::$db['tblaccounts'] = [
+        ['id' => 1, 'invoiceid' => 702, 'amountin' => '5.00', 'amountout' => '0.00'],
     ];
     CwStand::$db['tbltickets'] = [
-        ['id' => 1, 'tid' => 'ABC123', 'userid' => 100],
-        ['id' => 2, 'tid' => 'XYZ999', 'userid' => 300],
+        ['id' => 1, 'tid' => 'ABC123', 'userid' => 100, 'title' => 'Cannot log in', 'status' => 'Open',
+         'lastreply' => '2026-10-29 10:00:00', 'merged_ticket_id' => 0],
+        ['id' => 2, 'tid' => 'XYZ999', 'userid' => 300, 'title' => 'Other client', 'status' => 'Open',
+         'lastreply' => '2026-10-29 10:00:00', 'merged_ticket_id' => 0],
+        ['id' => 3, 'tid' => 'OLD111', 'userid' => 100, 'title' => 'Closed one', 'status' => 'Closed',
+         'lastreply' => '2026-01-01 10:00:00', 'merged_ticket_id' => 0],
+        ['id' => 4, 'tid' => 'MRG222', 'userid' => 100, 'title' => 'Merged one', 'status' => 'Open',
+         'lastreply' => '2026-10-28 10:00:00', 'merged_ticket_id' => 1],
+    ];
+    CwStand::$db['tblticketstatuses'] = [
+        ['title' => 'Open', 'showactive' => 1],
+        ['title' => 'Answered', 'showactive' => 1],
+        ['title' => 'Closed', 'showactive' => 0],
+    ];
+    CwStand::$db['tblcurrencies'] = [
+        ['id' => 1, 'code' => 'USD', 'prefix' => '$', 'suffix' => ' USD', 'default' => 1],
+    ];
+    // Admins: 1 has a role with access to the addon, 2 does not, 3 is disabled.
+    CwStand::$db['tbladmins'] = [
+        ['id' => 1, 'roleid' => 1, 'disabled' => 0],
+        ['id' => 2, 'roleid' => 2, 'disabled' => 0],
+        ['id' => 3, 'roleid' => 1, 'disabled' => 1],
+    ];
+    CwStand::$db['tblusers'] = [
+        ['id' => 10, 'first_name' => 'Olga', 'last_name' => 'Owner', 'email' => 'owner@example.test'],
+        ['id' => 11, 'first_name' => 'Ivan', 'last_name' => 'Invited', 'email' => 'invited@example.test'],
+        ['id' => 12, 'first_name' => 'Nora', 'last_name' => 'Noclient', 'email' => 'nobody@example.test'],
+        ['id' => 30, 'first_name' => '</script>', 'last_name' => 'O&#039;Brien\\', 'email' => 'tricky@example.test'],
+    ];
+    CwStand::$db['tblclients'] = [
+        ['id' => 100, 'firstname' => 'Olga', 'lastname' => 'Owner', 'companyname' => 'Acme', 'email' => 'owner@example.test',
+         'status' => 'Active', 'datecreated' => '2024-03-01', 'credit' => '5.00', 'currency' => 1],
+        ['id' => 300, 'firstname' => '&lt;/script&gt;', 'lastname' => 'Test', 'companyname' => 'O&#039;Brien\\',
+         'email' => 'tricky@example.test', 'status' => 'Active', 'datecreated' => '2025-01-01', 'credit' => '0.00', 'currency' => 1],
+        // an account whose email no user logs in with
+        ['id' => 500, 'firstname' => 'Accounts', 'lastname' => 'Dept', 'companyname' => 'Billing Only', 'email' => 'accounts@example.test',
+         'status' => 'Inactive', 'datecreated' => '2023-05-05', 'credit' => '0.00', 'currency' => 1],
     ];
 
     CwStand::$clients = [

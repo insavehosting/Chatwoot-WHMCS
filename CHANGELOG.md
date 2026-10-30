@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.4-insave.4 — 2026-10-30
+
+- **WHMCS card in Chatwoot** (`app.php`, a Chatwoot Dashboard App): the client behind the contact of a conversation — account, credit, services, unpaid invoices with balance and overdue flag, open tickets, with links to the WHMCS admin area. Read-only. Requires a WHMCS admin session in the same browser and an admin role ticked in the addon's Access Control; the context is accepted only from the Chatwoot origin (new setting "Dashboard App Origin", default: the origin of the Chatwoot URL); `frame-ancestors` limits framing to that origin. Contacts with a `whmcs:u:<id>` identifier are matched by user, others by email and marked "not confirmed".
+- **No money amounts from the widget**: `credit_balance`, `revenue`, `unpaid_amount` and `overdue_amount` are no longer sent; agents see amounts in the card.
+
 ## 2.0.4-insave.3 — 2026-10-30
 
 - **Admin sessions.** With "Enable on Login as Client" on, the widget is shown while an admin is logged in to WHMCS in the same browser, but it is never identified: no `setUser`, no reset, the visitor label. Before, "Login as Client" identified the admin as the client, who could then chat and see history as that client. With the setting off there is still no widget in admin sessions.

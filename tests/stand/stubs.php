@@ -120,6 +120,12 @@ namespace {
             return $this;
         }
 
+        public function whereIn($column, array $values): self
+        {
+            $this->wheres[] = [$column, 'in', array_map('strval', $values)];
+            return $this;
+        }
+
         public function orderBy($column, $direction = 'asc'): self
         {
             $this->order = [$column, strtolower($direction)];
@@ -131,8 +137,12 @@ namespace {
             $rows = array_values(array_filter(CwStand::$db[$this->table] ?? [], function ($row) {
                 foreach ($this->wheres as [$column, $op, $value]) {
                     $actual = $row[$column] ?? null;
-                    $ok = $op === '=' ? (string) $actual === (string) $value
-                        : ($op === '!=' || $op === '<>' ? (string) $actual !== (string) $value : false);
+                    if ($op === 'in') {
+                        $ok = in_array((string) $actual, $value, true);
+                    } else {
+                        $ok = $op === '=' ? (string) $actual === (string) $value
+                            : ($op === '!=' || $op === '<>' ? (string) $actual !== (string) $value : false);
+                    }
                     if (!$ok) {
                         return false;
                     }
@@ -206,6 +216,25 @@ namespace {
     function add_hook($name, $priority, $callback)
     {
         CwStand::$hooks[$name][] = $callback;
+    }
+
+    // WHMCS's CSRF token: one per session.
+    function generate_token($type = 'plain')
+    {
+        if (empty($_SESSION['cw_stand_token'])) {
+            $_SESSION['cw_stand_token'] = bin2hex(random_bytes(16));
+        }
+        return $_SESSION['cw_stand_token'];
+    }
+
+    // The WHMCS application facade; a non-default admin folder, so the card's
+    // links are checked against it.
+    final class App
+    {
+        public static function get_admin_folder_name()
+        {
+            return 'staffpanel';
+        }
     }
 
     function localAPI($command, $data)
