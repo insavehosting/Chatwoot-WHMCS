@@ -86,6 +86,13 @@ def cli_checks():
     if web is not None:
         check('export refuses to run outside the CLI', 'old_identifier' not in web.stdout, web.stdout[:200])
 
+    deploy = (ROOT / 'docs/deploy.md').read_text()
+    for name in ('chatwoot.php', 'hooks.php'):
+        actual = hashlib.md5((ROOT / 'chatwoot' / name).read_bytes()).hexdigest()
+        m = re.search(r'\| `' + re.escape(name) + r'` \| `([0-9a-f]{32})` \|', deploy)
+        check(f'docs/deploy.md has the current md5 of {name}', m is not None and m.group(1) == actual,
+              f'doc={m and m.group(1)} file={actual}')
+
     r = sh('ruby', 'tests/stand/migrate_test.rb')
     check('migrate-identifiers.rb (tests/stand/migrate_test.rb)', r.returncode == 0, r.stdout + r.stderr)
 
