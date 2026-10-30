@@ -101,7 +101,7 @@ The WHMCS SystemURL plus the route, without the query string. `index.php?rp=/rou
 
 ## WHMCS card in Chatwoot (Dashboard App)
 
-`app.php` shows the WHMCS client behind the contact of a Chatwoot conversation: the account (name, company, status, client since, credit), services (product, domain, status, next due date), unpaid invoices with the balance left and an overdue flag, and open tickets, each linked to the WHMCS admin area. Read-only.
+`app.php` shows the WHMCS client behind the contact of a Chatwoot conversation, in Chatwoot's light or dark theme: the account (name, company, status, client since, credit), services (product, domain, status, next due date), unpaid invoices with the balance left and an overdue flag, and open tickets, each linked to the WHMCS admin area. Read-only.
 
 **Setup**
 

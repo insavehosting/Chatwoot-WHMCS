@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.4-insave.5 — 2026-10-30
+
+- **WHMCS card redesigned** on Chatwoot's own color tokens for light and dark: soft status pills, every text at 4.5:1 or more, the page follows Chatwoot's theme in every state and shows the dashboard's background through. A summary per account (credit, unpaid total, overdue invoices, open tickets), collapsible sections, rows that wrap on narrow panels.
+
 ## 2.0.4-insave.4 — 2026-10-30
 
 - **WHMCS card in Chatwoot** (`app.php`, a Chatwoot Dashboard App): the client behind the contact of a conversation — account, credit, services, unpaid invoices with balance and overdue flag, open tickets, with links to the WHMCS admin area. Read-only. Requires a WHMCS admin session in the same browser and an admin role ticked in the addon's Access Control; the context is accepted only from the Chatwoot origin (new setting "Dashboard App Origin", default: the origin of the Chatwoot URL); `frame-ancestors` limits framing to that origin. Contacts with a `whmcs:u:<id>` identifier are matched by user, others by email and marked "not confirmed".

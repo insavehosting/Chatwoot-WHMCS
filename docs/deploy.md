@@ -1,16 +1,16 @@
-# Upgrading to 2.0.4-insave.4
+# Upgrading to 2.0.4-insave.5
 
-From 2.0.4-insave.2 or .3: put the three files in place (md5 below), open WHMCS Admin → Setup → Addon Modules, then set up the WHMCS card (README, "WHMCS card in Chatwoot"): Access Control roles, the Dashboard App in Chatwoot, no `X-Frame-Options` on `app.php`. From 2.0.4: the whole page applies.
+From 2.0.4-insave.4: replace `chatwoot.php` and `app.php` (md5 below; `hooks.php` is unchanged) and open WHMCS Admin → Setup → Addon Modules. From 2.0.4-insave.2 or .3: put the three files in place, open Setup → Addon Modules, then set up the WHMCS card (README, "WHMCS card in Chatwoot"): Access Control roles, the Dashboard App in Chatwoot. From 2.0.4: the whole page applies.
 
 ## Files
 
 Three files go to the server, `modules/addons/chatwoot/chatwoot.php`, `hooks.php` and `app.php`, into the same path under the WHMCS root:
 
-| File | md5 of 2.0.4-insave.4 |
+| File | md5 of 2.0.4-insave.5 |
 |---|---|
-| `chatwoot.php` | `494a0c12c58f1c7f9f4ec8a66f718e13` |
+| `chatwoot.php` | `f85833a93b18a48bef0ffda61cfe5fdb` |
 | `hooks.php` | `6af44aac22868c7b1aa068cb79a28846` |
-| `app.php` | `09053e17100c5190cc2e8fce48061975` |
+| `app.php` | `6dc16caf412d1cd621f3dc9a4c96f969` |
 
 What may be there now (keep a copy for a rollback):
 
@@ -19,6 +19,8 @@ What may be there now (keep a copy for a rollback):
 | `chatwoot.php` | 2.0.4 | `a3a63c891d6ff25c87869679a0496b75` |
 | `hooks.php` | 2.0.4 (upstream tag `2.0.4`) | `440870a44a9c4ab7ad3fcd6cfa07c861` |
 | `hooks.php` | 2.0.4 + the reset fix (branch `fix-guest-reset`, `17d5e6d`) | `fcd926d8d6e4570b91a7de63e838362b` |
+| `chatwoot.php` | 2.0.4-insave.4 | `494a0c12c58f1c7f9f4ec8a66f718e13` |
+| `app.php` | 2.0.4-insave.4 | `09053e17100c5190cc2e8fce48061975` |
 | `chatwoot.php` | 2.0.4-insave.3 | `f8906396cf231a40e47aa117a2b55980` |
 | `hooks.php` | 2.0.4-insave.3 | `1f3f8e51fcb9e91f172503d80ee67b37` |
 | `chatwoot.php` | 2.0.4-insave.2 | `d003f4243cd579d3bd246b35bfae2503` |
@@ -35,7 +37,7 @@ What may be there now (keep a copy for a rollback):
 
    ```bash
    md5sum modules/addons/chatwoot/*.php
-   # PASS: 494a0c12… chatwoot.php, 6af44aac… hooks.php, 09053e17… app.php
+   # PASS: f85833a9… chatwoot.php, 6af44aac… hooks.php, 6dc16caf… app.php
    ```
 
 ## Order
@@ -54,7 +56,7 @@ What may be there now (keep a copy for a rollback):
 
    ```sql
    SELECT setting, LEFT(value, 20) FROM tbladdonmodules WHERE module = 'chatwoot' AND setting IN ('version', 'chatwoot_jscode')
-   -- PASS: one row, version = 2.0.4-insave.4; no chatwoot_jscode row
+   -- PASS: one row, version = 2.0.4-insave.5; no chatwoot_jscode row
    ```
 4. **Chatwoot server, right away:**
    - way A: clear the old identifiers, [migrate-identifiers.md](migrate-identifiers.md) A;
