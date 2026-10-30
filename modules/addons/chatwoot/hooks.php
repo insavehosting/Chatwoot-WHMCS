@@ -124,12 +124,8 @@ function hook_chatwoot_output($vars)
 
         # Extra Meta
         $clienttickets          = (int) ($apiResults['stats']['numactivetickets'] ?? 0);
-        $clientcredit           = $apiResults['stats']['creditbalance'] ?? '';
-        $clientrevenue          = $apiResults['stats']['income'] ?? '';
         $clientunpaid           = (int) ($apiResults['stats']['numunpaidinvoices'] ?? 0);
-        $clientunpaidtotal      = $apiResults['stats']['unpaidinvoicesamount'] ?? '';
         $clientoverdue          = (int) ($apiResults['stats']['numoverdueinvoices'] ?? 0);
-        $clientoverduetotal     = $apiResults['stats']['overdueinvoicesbalance'] ?? '';
         $clientaffiliate        = !empty($apiResults['stats']['isAffiliate']);
         $clientemailverified    = !empty($apiResults['email_verified']);
 
@@ -141,8 +137,9 @@ function hook_chatwoot_output($vars)
                 'identifier_hash' => $identifier_hash,
                 'company_name'    => $clientcompany,
             ],
-            # snake_case keys: Chatwoot attribute definitions and automation
-            # rules are keyed by them
+            # snake_case keys: Chatwoot attribute definitions are keyed by
+            # them. No money amounts: every user of the account sees these in
+            # the page source; agents get amounts from the WHMCS card (app.php).
             'attributes'  => [
                 'whmcs_user_id'    => (int) $user->id,
                 'whmcs_client_id'  => $ClientID,
@@ -154,12 +151,8 @@ function hook_chatwoot_output($vars)
                 'postcode'         => $clientpostcode,
                 'country'          => $clientcountry,
                 'active_tickets'   => $clienttickets,
-                'credit_balance'   => $clientcredit,
-                'revenue'          => $clientrevenue,
                 'unpaid_invoices'  => $clientunpaid,
-                'unpaid_amount'    => $clientunpaidtotal,
                 'overdue_invoices' => $clientoverdue,
-                'overdue_amount'   => $clientoverduetotal,
                 'email_verified'   => $clientemailverified,
                 'is_affiliate'     => $clientaffiliate,
                 'current_page'     => $currentpage,
