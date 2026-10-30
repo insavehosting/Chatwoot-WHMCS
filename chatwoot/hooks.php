@@ -112,29 +112,15 @@ function hook_chatwoot_output($vars)
         $clientlang     = $apiResults['client']['language'];
 
         # Extra Meta
-        $clienttickets          = $apiResults['stats']['numactivetickets'];
+        $clienttickets          = (int) $apiResults['stats']['numactivetickets'];
         $clientcredit           = $apiResults['stats']['creditbalance'];
         $clientrevenue          = $apiResults['stats']['income'];
-        $clientunpaid           = $apiResults['stats']['numunpaidinvoices'];
+        $clientunpaid           = (int) $apiResults['stats']['numunpaidinvoices'];
         $clientunpaidtotal      = $apiResults['stats']['unpaidinvoicesamount'];
-        $clientoverdue          = $apiResults['stats']['numoverdueinvoices'];
+        $clientoverdue          = (int) $apiResults['stats']['numoverdueinvoices'];
         $clientoverduetotal     = $apiResults['stats']['overdueinvoicesbalance'];
-        $isClientAffiliate      = $apiResults["stats"]["isAffiliate"];
-        $clientemailstatus      = $apiResults["email_verified"];
-
-        # Is Email Verified?
-        if ($clientemailstatus) {
-            $clientemailver = 'Verified';
-        } else {
-            $clientemailver = 'Not Verified';
-        }
-
-        # Is Client an Affiliate?
-        if ($isClientAffiliate == 1) {
-            $clientaffiliate = 'Yes';
-        } else {
-            $clientaffiliate = 'No';
-        }
+        $clientaffiliate        = !empty($apiResults['stats']['isAffiliate']);
+        $clientemailverified    = !empty($apiResults['email_verified']);
     }
 
     # the SDK appends '/packs/js/sdk.js' and '/widget' itself
@@ -171,24 +157,26 @@ function hook_chatwoot_output($vars)
                 'identifier_hash' => $identifier_hash,
                 'company_name'    => $clientcompany,
             ],
+            # snake_case keys: Chatwoot attribute definitions and automation
+            # rules are keyed by them
             'attributes'  => [
-                'ID'               => $ClientID,
-                'Phone'            => $clientphone,
-                'Language'         => $clientlang,
-                'City'             => $clientcity,
-                'State'            => $clientstate,
-                'Post Code'        => $clientpostcode,
-                'Country'          => $clientcountry,
-                'Active Tickets'   => $clienttickets,
-                'Credit Balance'   => $clientcredit,
-                'Revenue'          => $clientrevenue,
-                'Unpaid Invoices'  => $clientunpaid,
-                'Account Unpaid'   => $clientunpaidtotal,
-                'Overdue Invoices' => $clientoverdue,
-                'Account Overdue'  => $clientoverduetotal,
-                'Email Status'     => $clientemailver,
-                'Is Affiliate'     => $clientaffiliate,
-                'Current Page'     => $currentpage,
+                'whmcs_client_id'  => (int) $ClientID,
+                'phone'            => $clientphone,
+                'language'         => $clientlang,
+                'city'             => $clientcity,
+                'state'            => $clientstate,
+                'postcode'         => $clientpostcode,
+                'country'          => $clientcountry,
+                'active_tickets'   => $clienttickets,
+                'credit_balance'   => $clientcredit,
+                'revenue'          => $clientrevenue,
+                'unpaid_invoices'  => $clientunpaid,
+                'unpaid_amount'    => $clientunpaidtotal,
+                'overdue_invoices' => $clientoverdue,
+                'overdue_amount'   => $clientoverduetotal,
+                'email_verified'   => $clientemailverified,
+                'is_affiliate'     => $clientaffiliate,
+                'current_page'     => $currentpage,
             ],
             'label'       => $chatwoot_setlabelloggedin,
             'removeLabel' => $chatwoot_setlabel,
@@ -213,7 +201,6 @@ function hook_chatwoot_output($vars)
       var userCookie = 'cw_user_' + cfg.websiteToken, before = readCookie(userCookie);
       cw.setUser(cfg.identifier, cfg.user);
       sendAttributes(cw, readCookie(userCookie) !== before);
-      cw.deleteCustomAttribute('Test Attribute');
       cw.setLabel(cfg.label);
       cw.removeLabel(cfg.removeLabel);
       cw.setLocale(cfg.locale);
@@ -223,7 +210,7 @@ JS;
         $config += [
             'reset'      => $chatwoot_reset,
             'label'      => $chatwoot_label,
-            'attributes' => ['Current Page' => $currentpage],
+            'attributes' => ['current_page' => $currentpage],
         ];
         $handler = <<<'JS'
     window.addEventListener('chatwoot:ready', function () {
