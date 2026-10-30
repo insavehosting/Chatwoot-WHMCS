@@ -70,40 +70,46 @@ function hook_chatwoot_output($vars)
     }
 
     # user basic info
-    $currentUser  = new CurrentUser;
-    $client       = $currentUser->client();
-    $user         = $currentUser->user();
-    $currentpage  = cw_current_page();
+    $currentUser = new CurrentUser;
+    $user        = $currentUser->user();
+    $client      = $user ? $currentUser->client() : null;
+    $currentpage = cw_current_page();
 
-    # Fetch labels
-    if (!is_null($user)) {
-        $chatwoot_label = $chatwoot_setlabelloggedin;
-    } else {
-        $chatwoot_label = $chatwoot_setlabel;
-    }
+    # the SDK appends '/packs/js/sdk.js' and '/widget' itself
+    $chatwoot_url = rtrim((string) $chatwoot_url, '/');
 
-    # Get client ID and set contact ID
-    if ($user && $client && $user->isOwner($client)) {
-        $ClientID = $client->id;
-    } elseif ($user) {
-        //$ownedClients = $user->ownedClients()->all();
-        //$ClientID     = $ownedClients[0]['id'];
-        $ClientID = $client->id;
-    }
+    # Reset the widget only when its session belongs to someone else: after a
+    # logout (flag from the logout hook, or a client marker left in the
+    # browser) or when a different user is now logged in. Never for a
+    # visitor who has not logged in -- resetting on every /login view dropped
+    # the conversation of anyone asking for help there.
+    $chatwoot_reset = !empty($_SESSION['chatwoot_reset']);
+    unset($_SESSION['chatwoot_reset']);
 
-    if (!is_null($user)) {
-        $clientChatID    = hash_hmac("sha256", $ClientID, $verification_hash);
-        $identifier_hash = hash_hmac("sha256", $clientChatID, $verification_hash);
-    }
+    $settings = [
+        'position'      => $chatwoot_position,
+        'type'          => $chatwoot_bubble,
+        'launcherTitle' => $chatwoot_launcherTitle,
+        'darkMode'      => $chatwoot_dark,
+    ];
+    $config = [
+        'baseUrl'      => $chatwoot_url,
+        'websiteToken' => $chatwoot_token,
+        'locale'       => $chatwoot_lang ?? '',
+    ];
 
-    # build contact info
-    if (!is_null($user)) {
+    if ($user && $client) {
+        # The Chatwoot contact is the WHMCS user, not the client account: a
+        # user invited into someone else's account gets a contact of their
+        # own instead of the owner's, with the owner's history.
+        $ClientID        = (int) $client->id;
+        $identifier      = 'whmcs:u:' . $user->id;
+        $identifier_hash = hash_hmac('sha256', $identifier, $verification_hash);
+        $username        = trim($user->first_name . ' ' . $user->last_name);
 
         $apiResults = cw_client_details($user->id, $ClientID);
 
         # Client Info
-        $clientemail    = $apiResults['client']['email'];
-        $clientname     = $apiResults['client']['fullname'];
         $clientphone    = $apiResults['client']['phonenumberformatted'];
         $clientcompany  = $apiResults['client']['companyname'];
         $clientcountry  = $apiResults['client']['countryname'];
@@ -122,46 +128,21 @@ function hook_chatwoot_output($vars)
         $clientoverduetotal     = $apiResults['stats']['overdueinvoicesbalance'];
         $clientaffiliate        = !empty($apiResults['stats']['isAffiliate']);
         $clientemailverified    = !empty($apiResults['email_verified']);
-    }
 
-    # the SDK appends '/packs/js/sdk.js' and '/widget' itself
-    $chatwoot_url = rtrim((string) $chatwoot_url, '/');
-
-    # Reset the widget only when its session belongs to someone else: after a
-    # logout (flag from the logout hook, or a client marker left in the
-    # browser) or when a different client is now logged in. Never for a
-    # visitor who has not logged in -- resetting on every /login view dropped
-    # the conversation of anyone asking for help there.
-    $chatwoot_reset = !empty($_SESSION['chatwoot_reset']);
-    unset($_SESSION['chatwoot_reset']);
-    $chatwoot_client_key = empty($ClientID) ? '' : $clientChatID;
-
-    $settings = [
-        'position'      => $chatwoot_position,
-        'type'          => $chatwoot_bubble,
-        'launcherTitle' => $chatwoot_launcherTitle,
-        'darkMode'      => $chatwoot_dark,
-    ];
-    $config = [
-        'baseUrl'      => $chatwoot_url,
-        'websiteToken' => $chatwoot_token,
-        'locale'       => $chatwoot_lang ?? '',
-    ];
-
-    if (!is_null($user)) {
         $config += [
-            'clientKey'   => $chatwoot_client_key,
-            'identifier'  => $clientChatID,
+            'identifier'  => $identifier,
             'user'        => [
-                'email'           => $clientemail,
-                'name'            => $clientname,
+                'email'           => $user->email,
+                'name'            => $username !== '' ? $username : $user->email,
                 'identifier_hash' => $identifier_hash,
                 'company_name'    => $clientcompany,
             ],
             # snake_case keys: Chatwoot attribute definitions and automation
             # rules are keyed by them
             'attributes'  => [
-                'whmcs_client_id'  => (int) $ClientID,
+                'whmcs_user_id'    => (int) $user->id,
+                'whmcs_client_id'  => $ClientID,
+                'whmcs_is_owner'   => (bool) $user->isOwner($client),
                 'phone'            => $clientphone,
                 'language'         => $clientlang,
                 'city'             => $clientcity,
@@ -185,10 +166,10 @@ function hook_chatwoot_output($vars)
         $handler = <<<'JS'
     window.addEventListener('chatwoot:ready', function () {
       var cw = window.$chatwoot;
-      // Another client chatted last in this browser: start clean.
+      // Another user chatted last in this browser: start clean.
       // chatwoot:ready does not fire again after reset(), so this
-      // client is identified on the next page.
-      var current = cfg.clientKey, previous = null;
+      // user is identified on the next page.
+      var current = cfg.identifier, previous = null;
       if (current) {
         try {
           previous = localStorage.getItem('insave_cw_client');
@@ -207,10 +188,26 @@ function hook_chatwoot_output($vars)
       cw.setLocale(cfg.locale);
     });
 JS;
+    } elseif ($user) {
+        # Logged in, but no account selected yet (/user/accounts): the widget
+        # works as for a visitor and is not identified. The marker of this
+        # user's session is left alone -- this is not a logout.
+        $config += [
+            'label'      => $chatwoot_setlabel,
+            'attributes' => ['current_page' => $currentpage],
+        ];
+        $handler = <<<'JS'
+    window.addEventListener('chatwoot:ready', function () {
+      var cw = window.$chatwoot;
+      cw.setLabel(cfg.label);
+      cw.setLocale(cfg.locale);
+      sendAttributes(cw, false);
+    });
+JS;
     } else {
         $config += [
             'reset'      => $chatwoot_reset,
-            'label'      => $chatwoot_label,
+            'label'      => $chatwoot_setlabel,
             'attributes' => ['current_page' => $currentpage],
         ];
         $handler = <<<'JS'
