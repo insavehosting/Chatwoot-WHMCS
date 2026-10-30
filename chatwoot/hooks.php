@@ -64,10 +64,8 @@ function hook_chatwoot_output($vars)
         $chatwoot_dark = 'auto';
     }
 
-    # widget lang
-    if ($chatwoot_lang_setting) {
-        $chatwoot_lang = cw_langCode(ucfirst($vars['language']));
-    }
+    # widget lang: only a language Chatwoot has
+    $chatwoot_lang = $chatwoot_lang_setting ? cw_locale($vars['language'] ?? '') : null;
 
     # user basic info
     $currentUser = new CurrentUser;
@@ -92,10 +90,13 @@ function hook_chatwoot_output($vars)
         'launcherTitle' => $chatwoot_launcherTitle,
         'darkMode'      => $chatwoot_dark,
     ];
+    if ($chatwoot_lang) {
+        $settings['locale'] = $chatwoot_lang;
+    }
     $config = [
         'baseUrl'      => $chatwoot_url,
         'websiteToken' => $chatwoot_token,
-        'locale'       => $chatwoot_lang ?? '',
+        'locale'       => $chatwoot_lang,
     ];
 
     if ($user && $client) {
@@ -185,7 +186,7 @@ function hook_chatwoot_output($vars)
       sendAttributes(cw, readCookie(userCookie) !== before);
       cw.setLabel(cfg.label);
       cw.removeLabel(cfg.removeLabel);
-      cw.setLocale(cfg.locale);
+      if (cfg.locale) cw.setLocale(cfg.locale);
     });
 JS;
     } elseif ($user) {
@@ -200,7 +201,7 @@ JS;
     window.addEventListener('chatwoot:ready', function () {
       var cw = window.$chatwoot;
       cw.setLabel(cfg.label);
-      cw.setLocale(cfg.locale);
+      if (cfg.locale) cw.setLocale(cfg.locale);
       sendAttributes(cw, false);
     });
 JS;
@@ -224,7 +225,7 @@ JS;
         return;
       }
       cw.setLabel(cfg.label);
-      cw.setLocale(cfg.locale);
+      if (cfg.locale) cw.setLocale(cfg.locale);
       sendAttributes(cw, false);
     });
 JS;
@@ -402,194 +403,54 @@ add_hook('UserLogout', 1, function ($vars) {
 
 add_hook('ClientAreaFooterOutput', 1, 'hook_chatwoot_output');
 
-# to deal with langs
-function cw_langCode($name)
+# WHMCS language (lang/<name>.php) -> Chatwoot widget locale, from
+# config/initializers/languages.rb in Chatwoot v4.19.1. WHMCS has spelled
+# Ukrainian both ways. Languages Chatwoot does not have return null.
+function cw_locale($language)
 {
-    $languageCodes = array(
-        "aa" => "Afar",
-        "ab" => "Abkhazian",
-        "ae" => "Avestan",
-        "af" => "Afrikaans",
-        "ak" => "Akan",
-        "am" => "Amharic",
-        "an" => "Aragonese",
-        "ar" => "Arabic",
-        "as" => "Assamese",
-        "av" => "Avaric",
-        "ay" => "Aymara",
-        "az" => "Azerbaijani",
-        "ba" => "Bashkir",
-        "be" => "Belarusian",
-        "bg" => "Bulgarian",
-        "bh" => "Bihari",
-        "bi" => "Bislama",
-        "bm" => "Bambara",
-        "bn" => "Bengali",
-        "bo" => "Tibetan",
-        "br" => "Breton",
-        "bs" => "Bosnian",
-        "ca" => "Catalan",
-        "ce" => "Chechen",
-        "ch" => "Chamorro",
-        "co" => "Corsican",
-        "cr" => "Cree",
-        "cs" => "Czech",
-        "cu" => "Church Slavic",
-        "cv" => "Chuvash",
-        "cy" => "Welsh",
-        "da" => "Danish",
-        "de" => "German",
-        "dv" => "Divehi",
-        "dz" => "Dzongkha",
-        "ee" => "Ewe",
-        "el" => "Greek",
-        "en" => "English",
-        "eo" => "Esperanto",
-        "es" => "Spanish",
-        "et" => "Estonian",
-        "eu" => "Basque",
-        "fa" => "Persian",
-        "ff" => "Fulah",
-        "fi" => "Finnish",
-        "fj" => "Fijian",
-        "fo" => "Faroese",
-        "fr" => "French",
-        "fy" => "Western Frisian",
-        "ga" => "Irish",
-        "gd" => "Scottish Gaelic",
-        "gl" => "Galician",
-        "gn" => "Guarani",
-        "gu" => "Gujarati",
-        "gv" => "Manx",
-        "ha" => "Hausa",
-        "he" => "Hebrew",
-        "hi" => "Hindi",
-        "ho" => "Hiri Motu",
-        "hr" => "Croatian",
-        "ht" => "Haitian",
-        "hu" => "Hungarian",
-        "hy" => "Armenian",
-        "hz" => "Herero",
-        "ia" => "Interlingua (International Auxiliary Language Association)",
-        "id" => "Indonesian",
-        "ie" => "Interlingue",
-        "ig" => "Igbo",
-        "ii" => "Sichuan Yi",
-        "ik" => "Inupiaq",
-        "io" => "Ido",
-        "is" => "Icelandic",
-        "it" => "Italian",
-        "iu" => "Inuktitut",
-        "ja" => "Japanese",
-        "jv" => "Javanese",
-        "ka" => "Georgian",
-        "kg" => "Kongo",
-        "ki" => "Kikuyu",
-        "kj" => "Kwanyama",
-        "kk" => "Kazakh",
-        "kl" => "Kalaallisut",
-        "km" => "Khmer",
-        "kn" => "Kannada",
-        "ko" => "Korean",
-        "kr" => "Kanuri",
-        "ks" => "Kashmiri",
-        "ku" => "Kurdish",
-        "kv" => "Komi",
-        "kw" => "Cornish",
-        "ky" => "Kirghiz",
-        "la" => "Latin",
-        "lb" => "Luxembourgish",
-        "lg" => "Ganda",
-        "li" => "Limburgish",
-        "ln" => "Lingala",
-        "lo" => "Lao",
-        "lt" => "Lithuanian",
-        "lu" => "Luba-Katanga",
-        "lv" => "Latvian",
-        "mg" => "Malagasy",
-        "mh" => "Marshallese",
-        "mi" => "Maori",
-        "mk" => "Macedonian",
-        "ml" => "Malayalam",
-        "mn" => "Mongolian",
-        "mr" => "Marathi",
-        "ms" => "Malay",
-        "mt" => "Maltese",
-        "my" => "Burmese",
-        "na" => "Nauru",
-        "nb" => "Norwegian Bokmal",
-        "nd" => "North Ndebele",
-        "ne" => "Nepali",
-        "ng" => "Ndonga",
-        "nl" => "Dutch",
-        "nn" => "Norwegian Nynorsk",
-        "no" => "Norwegian",
-        "nr" => "South Ndebele",
-        "nv" => "Navajo",
-        "ny" => "Chichewa",
-        "oc" => "Occitan",
-        "oj" => "Ojibwa",
-        "om" => "Oromo",
-        "or" => "Oriya",
-        "os" => "Ossetian",
-        "pa" => "Panjabi",
-        "pi" => "Pali",
-        "pl" => "Polish",
-        "ps" => "Pashto",
-        "pt" => "Portuguese",
-        "qu" => "Quechua",
-        "rm" => "Raeto-Romance",
-        "rn" => "Kirundi",
-        "ro" => "Romanian",
-        "ru" => "Russian",
-        "rw" => "Kinyarwanda",
-        "sa" => "Sanskrit",
-        "sc" => "Sardinian",
-        "sd" => "Sindhi",
-        "se" => "Northern Sami",
-        "sg" => "Sango",
-        "si" => "Sinhala",
-        "sk" => "Slovak",
-        "sl" => "Slovenian",
-        "sm" => "Samoan",
-        "sn" => "Shona",
-        "so" => "Somali",
-        "sq" => "Albanian",
-        "sr" => "Serbian",
-        "ss" => "Swati",
-        "st" => "Southern Sotho",
-        "su" => "Sundanese",
-        "sv" => "Swedish",
-        "sw" => "Swahili",
-        "ta" => "Tamil",
-        "te" => "Telugu",
-        "tg" => "Tajik",
-        "th" => "Thai",
-        "ti" => "Tigrinya",
-        "tk" => "Turkmen",
-        "tl" => "Tagalog",
-        "tn" => "Tswana",
-        "to" => "Tonga",
-        "tr" => "Turkish",
-        "ts" => "Tsonga",
-        "tt" => "Tatar",
-        "tw" => "Twi",
-        "ty" => "Tahitian",
-        "ug" => "Uighur",
-        "uk" => "Ukrainian",
-        "ur" => "Urdu",
-        "uz" => "Uzbek",
-        "ve" => "Venda",
-        "vi" => "Vietnamese",
-        "vo" => "Volapuk",
-        "wa" => "Walloon",
-        "wo" => "Wolof",
-        "xh" => "Xhosa",
-        "yi" => "Yiddish",
-        "yo" => "Yoruba",
-        "za" => "Zhuang",
-        "zh" => "Chinese",
-        "zu" => "Zulu",
-    );
-    return array_search($name, $languageCodes);
+    $locales = [
+        'arabic'        => 'ar',
+        'bulgarian'     => 'bg',
+        'catalan'       => 'ca',
+        'chinese'       => 'zh_CN',
+        'czech'         => 'cs',
+        'danish'        => 'da',
+        'dutch'         => 'nl',
+        'english'       => 'en',
+        'estonian'      => 'et',
+        'farsi'         => 'fa',
+        'finnish'       => 'fi',
+        'french'        => 'fr',
+        'german'        => 'de',
+        'greek'         => 'el',
+        'hebrew'        => 'he',
+        'hungarian'     => 'hu',
+        'icelandic'     => 'is',
+        'indonesian'    => 'id',
+        'italian'       => 'it',
+        'japanese'      => 'ja',
+        'korean'        => 'ko',
+        'latvian'       => 'lv',
+        'lithuanian'    => 'lt',
+        'norwegian'     => 'no',
+        'polish'        => 'pl',
+        'portuguese'    => 'pt',
+        'portuguese-pt' => 'pt',
+        'portuguese-br' => 'pt_BR',
+        'romanian'      => 'ro',
+        'russian'       => 'ru',
+        'serbian'       => 'sr',
+        'slovak'        => 'sk',
+        'slovenian'     => 'sl',
+        'spanish'       => 'es',
+        'swedish'       => 'sv',
+        'thai'          => 'th',
+        'turkish'       => 'tr',
+        'ukrainian'     => 'uk',
+        'ukranian'      => 'uk',
+        'uzbek'         => 'uz',
+        'vietnamese'    => 'vi',
+    ];
+    $language = strtolower(trim((string) $language));
+    return $locales[$language] ?? null;
 }
