@@ -2,10 +2,10 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot WHMCS Addon (v2.0.4).                                        *
+// * Chatwoot WHMCS Addon (v2.0.4-insave.2, fork of WevrLabs 2.0.4).        *
 // * This addon module enables you to integrate Chatwoot with your WHMCS    *
 //   and leverage its powerful features.                                   *
-// * Tested on WHMCS Version: v8.12.                                       *
+// * Requires WHMCS 8 or later.                                            *
 // * For assistance on how to use and setup Chatwoot, visit                *
 //   https://www.chatwoot.com/docs/channels/website                        *
 // *                                                                       *
@@ -28,7 +28,7 @@ function chatwoot_config()
     return [
         "name"        => "Chatwoot",
         "description" => "Chatwoot is a customer support tool for instant messaging channels that can help businesses provide exceptional customer support. WHMCS module contributed by: <a href='https://wevrlabs.net/?utm_source=addon_link' target='_blank'>WevrLabs Hosting</a>",
-        "version"     => "2.0.4",
+        "version"     => "2.0.4-insave.2",
         "author"      => "<a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'><img src='https://dash.wevrlabs.net/logo.svg' alt='Contributed by WevrLabs Hosting' width='135px' /></a>",
         "fields"      => [
             'chatwoot_enable'           => [
@@ -124,4 +124,15 @@ function chatwoot_config()
 function chatwoot_activate()
 {
     return ['status' => 'success', 'description' => "Chatwoot for WHMCS has been successfully activated! Don't forget to configure the settings below!"];
+}
+
+# Runs when the version above changes (Setup -> Addon Modules after an upload).
+function chatwoot_upgrade($vars)
+{
+    # chatwoot_jscode was a setting of 2.0.0 that nothing has read since 2.0.1;
+    # it still holds the old widget snippet. Other modules' rows stay.
+    Capsule::table('tbladdonmodules')
+        ->where('module', 'chatwoot')
+        ->where('setting', 'chatwoot_jscode')
+        ->delete();
 }
