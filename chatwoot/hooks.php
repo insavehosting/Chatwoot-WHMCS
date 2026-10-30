@@ -139,115 +139,165 @@ function hook_chatwoot_output($vars)
     }
 
     # the SDK appends '/packs/js/sdk.js' and '/widget' itself
-    $chatwoot_url = rtrim($chatwoot_url, '/');
+    $chatwoot_url = rtrim((string) $chatwoot_url, '/');
 
     # Reset the widget only when its session belongs to someone else: after a
     # logout (flag from the logout hook, or a client marker left in the
     # browser) or when a different client is now logged in. Never for a
     # visitor who has not logged in -- resetting on every /login view dropped
     # the conversation of anyone asking for help there.
-    $chatwoot_reset = empty($_SESSION['chatwoot_reset']) ? 'false' : 'true';
+    $chatwoot_reset = !empty($_SESSION['chatwoot_reset']);
     unset($_SESSION['chatwoot_reset']);
     $chatwoot_client_key = empty($ClientID) ? '' : $clientChatID;
 
-    # prepare widget code
-    $chatwoot_jscode = "
-            <script>
-  window.chatwootSettings = {'position':'$chatwoot_position','type':'$chatwoot_bubble','launcherTitle':'$chatwoot_launcherTitle','darkMode': '$chatwoot_dark'};
-  (function(d,t) {
-    var BASE_URL='$chatwoot_url';
-    var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
-    g.src=BASE_URL+'/packs/js/sdk.js';
-    g.defer = true;
-    g.async = true;
-    s.parentNode.insertBefore(g,s);
-    g.onload=function(){
-      window.chatwootSDK.run({
-        websiteToken: '$chatwoot_token',
-        baseUrl: BASE_URL
-      })
-    }
-  })(document,'script');
-</script>
-";
-
-    # Now let's set the final output
+    $settings = [
+        'position'      => $chatwoot_position,
+        'type'          => $chatwoot_bubble,
+        'launcherTitle' => $chatwoot_launcherTitle,
+        'darkMode'      => $chatwoot_dark,
+    ];
+    $config = [
+        'baseUrl'      => $chatwoot_url,
+        'websiteToken' => $chatwoot_token,
+        'locale'       => isset($chatwoot_lang) ? $chatwoot_lang : '',
+    ];
 
     if (!is_null($user)) {
-
-        $chatwoot_output =
-            "$chatwoot_jscode
-            <script>
-              window.addEventListener('chatwoot:ready', function () {
-                // Another client chatted last in this browser: start clean.
-                // chatwoot:ready does not fire again after reset(), so this
-                // client is identified on the next page.
-                var current = '$chatwoot_client_key', previous = null;
-                if (current) {
-                  try {
-                    previous = localStorage.getItem('insave_cw_client');
-                    localStorage.setItem('insave_cw_client', current);
-                  } catch (e) {}
-                }
-                if (previous && previous !== current) {
-                  window.\$chatwoot.reset();
-                  return;
-                }
-                window.\$chatwoot.setUser('$clientChatID', {
-                  email: '$clientemail',
-                  name: '$clientname',
-                  identifier_hash: '$identifier_hash',
-                  company_name: '$clientcompany',
-                });
-                window.\$chatwoot.setCustomAttributes({
-                  'ID': '$ClientID',
-                  'Phone': '$clientphone',
-                  'Language': '$clientlang',
-                  'City': '$clientcity',
-                  'State': '$clientstate',
-                  'Post Code': '$clientpostcode',
-                  'Country': '$clientcountry',
-                  'Active Tickets': '$clienttickets',
-                  'Credit Balance': '$clientcredit',
-                  'Revenue': '$clientrevenue',
-                  'Unpaid Invoices': '$clientunpaid',
-                  'Account Unpaid': '$clientunpaidtotal',
-                  'Overdue Invoices': '$clientoverdue',
-                  'Account Overdue': '$clientoverduetotal',
-                  'Email Status': '$clientemailver',
-                  'Is Affiliate': '$clientaffiliate',
-                  'Current Page': '$currentpage',
-                });
-                window.\$chatwoot.deleteCustomAttribute('Test Attribute');
-                window.\$chatwoot.setLabel('$chatwoot_setlabelloggedin');
-                window.\$chatwoot.removeLabel('$chatwoot_setlabel');
-                window.\$chatwoot.setLocale('$chatwoot_lang');
-              });
-            </script>";
+        $config += [
+            'clientKey'   => $chatwoot_client_key,
+            'identifier'  => $clientChatID,
+            'user'        => [
+                'email'           => $clientemail,
+                'name'            => $clientname,
+                'identifier_hash' => $identifier_hash,
+                'company_name'    => $clientcompany,
+            ],
+            'attributes'  => [
+                'ID'               => $ClientID,
+                'Phone'            => $clientphone,
+                'Language'         => $clientlang,
+                'City'             => $clientcity,
+                'State'            => $clientstate,
+                'Post Code'        => $clientpostcode,
+                'Country'          => $clientcountry,
+                'Active Tickets'   => $clienttickets,
+                'Credit Balance'   => $clientcredit,
+                'Revenue'          => $clientrevenue,
+                'Unpaid Invoices'  => $clientunpaid,
+                'Account Unpaid'   => $clientunpaidtotal,
+                'Overdue Invoices' => $clientoverdue,
+                'Account Overdue'  => $clientoverduetotal,
+                'Email Status'     => $clientemailver,
+                'Is Affiliate'     => $clientaffiliate,
+                'Current Page'     => $currentpage,
+            ],
+            'label'       => $chatwoot_setlabelloggedin,
+            'removeLabel' => $chatwoot_setlabel,
+        ];
+        $handler = <<<'JS'
+    window.addEventListener('chatwoot:ready', function () {
+      var cw = window.$chatwoot;
+      // Another client chatted last in this browser: start clean.
+      // chatwoot:ready does not fire again after reset(), so this
+      // client is identified on the next page.
+      var current = cfg.clientKey, previous = null;
+      if (current) {
+        try {
+          previous = localStorage.getItem('insave_cw_client');
+          localStorage.setItem('insave_cw_client', current);
+        } catch (e) {}
+      }
+      if (previous && previous !== current) {
+        cw.reset();
+        return;
+      }
+      cw.setUser(cfg.identifier, cfg.user);
+      cw.setCustomAttributes(cfg.attributes);
+      cw.deleteCustomAttribute('Test Attribute');
+      cw.setLabel(cfg.label);
+      cw.removeLabel(cfg.removeLabel);
+      cw.setLocale(cfg.locale);
+    });
+JS;
     } else {
-        $chatwoot_output = "
-            $chatwoot_jscode
-            <script>
-              window.addEventListener('chatwoot:ready', function () {
-                // A client logged out in this browser: drop their session.
-                var previous = null;
-                try {
-                  previous = localStorage.getItem('insave_cw_client');
-                  localStorage.removeItem('insave_cw_client');
-                } catch (e) {}
-                if (previous || $chatwoot_reset) {
-                  window.\$chatwoot.reset();
-                  return;
-                }
-                window.\$chatwoot.setLabel('$chatwoot_label');
-                window.\$chatwoot.setLocale('$chatwoot_lang');
-                window.\$chatwoot.setCustomAttributes({
-                  'Current Page': '$currentpage',
-                });
-              });
-            </script>";
+        $config += [
+            'reset'      => $chatwoot_reset,
+            'label'      => $chatwoot_label,
+            'attributes' => ['Current Page' => $currentpage],
+        ];
+        $handler = <<<'JS'
+    window.addEventListener('chatwoot:ready', function () {
+      var cw = window.$chatwoot;
+      // A client logged out in this browser: drop their session.
+      var previous = null;
+      try {
+        previous = localStorage.getItem('insave_cw_client');
+        localStorage.removeItem('insave_cw_client');
+      } catch (e) {}
+      if (previous || cfg.reset) {
+        cw.reset();
+        return;
+      }
+      cw.setLabel(cfg.label);
+      cw.setLocale(cfg.locale);
+      cw.setCustomAttributes(cfg.attributes);
+    });
+JS;
     }
-    return $chatwoot_output;
+
+    return cw_widget_script($settings, $config, $handler);
+}
+
+# Every value reaches the page through json_encode: nothing is pasted into a
+# JS string by hand. WHMCS stores client fields HTML-encoded (O&#039;Brien),
+# so entities are decoded first; the HEX flags keep </script>, quotes and
+# ampersands from ending the script tag or the string.
+function cw_js($value)
+{
+    return json_encode(
+        cw_js_prepare($value),
+        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+            | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+}
+
+function cw_js_prepare($value)
+{
+    if (is_array($value)) {
+        return array_map('cw_js_prepare', $value);
+    }
+    if (is_string($value)) {
+        return html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+    if (is_bool($value) || is_int($value) || is_float($value) || is_null($value)) {
+        return $value;
+    }
+    return html_entity_decode((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+}
+
+function cw_widget_script(array $settings, array $config, $handler)
+{
+    $loader = <<<'JS'
+<script>
+  window.chatwootSettings = __SETTINGS__;
+  (function (d, t, cfg) {
+    var g = d.createElement(t), s = d.getElementsByTagName(t)[0];
+    g.src = cfg.baseUrl + '/packs/js/sdk.js';
+    g.defer = true;
+    g.async = true;
+    s.parentNode.insertBefore(g, s);
+    g.onload = function () {
+      window.chatwootSDK.run({ websiteToken: cfg.websiteToken, baseUrl: cfg.baseUrl });
+    };
+__HANDLER__
+  })(document, 'script', __CONFIG__);
+</script>
+JS;
+    return strtr($loader, [
+        '__SETTINGS__' => cw_js($settings),
+        '__CONFIG__'   => cw_js($config),
+        '__HANDLER__'  => $handler,
+    ]);
 }
 
 $whmcsver   = cwoot_whmcs_version();
