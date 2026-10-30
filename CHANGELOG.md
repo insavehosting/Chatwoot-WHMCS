@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.4-insave.6 — 2026-10-30
+
+- **WHMCS card on Chatwoot's main background** (`--background-color`, as in its sidebar), light and dark. Chatwoot 4.19.1 puts the iframe on a near-white pane, so the card used to sit white on white.
+
 ## 2.0.4-insave.5 — 2026-10-30
 
 - **WHMCS card redesigned** on Chatwoot's own color tokens for light and dark: soft status pills, every text at 4.5:1 or more, the page follows Chatwoot's theme in every state and shows the dashboard's background through. A summary per account (credit, unpaid total, overdue invoices, open tickets), collapsible sections, rows that wrap on narrow panels.
