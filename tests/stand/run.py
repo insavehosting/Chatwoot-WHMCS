@@ -75,7 +75,7 @@ def cli_checks():
 
     config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
     config = json.loads(config.stdout or '{}')
-    check('module version is 2.0.4-insave.3', config.get('version') == '2.0.4-insave.3', config.get('version'))
+    check('module version is 2.0.4-insave.4', config.get('version') == '2.0.4-insave.4', config.get('version'))
     check('shown as "Chatwoot by inSave", author without a third-party image',
           config.get('name') == 'Chatwoot by inSave' and '<img' not in config.get('author', '')
           and 'insavehosting/Chatwoot-WHMCS' in config.get('author', ''), (config.get('name'), config.get('author')))
@@ -95,7 +95,7 @@ def cli_checks():
         check('export refuses to run outside the CLI', 'old_identifier' not in web.stdout, web.stdout[:200])
 
     deploy = (ROOT / 'docs/deploy.md').read_text()
-    for name in ('chatwoot.php', 'hooks.php'):
+    for name in ('chatwoot.php', 'hooks.php', 'app.php'):
         actual = hashlib.md5((ROOT / 'modules/addons/chatwoot' / name).read_bytes()).hexdigest()
         m = re.search(r'\| `' + re.escape(name) + r'` \| `([0-9a-f]{32})` \|', deploy)
         check(f'docs/deploy.md has the current md5 of {name}', m is not None and m.group(1) == actual,

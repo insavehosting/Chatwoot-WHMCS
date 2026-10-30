@@ -10,6 +10,7 @@ Requires WHMCS 8 or later and PHP 7.4+. SDK and API behaviour checked against Ch
 |---|---|---|
 | `modules/addons/chatwoot/chatwoot.php` | addon configuration, `chatwoot_upgrade` | yes, same path under the WHMCS root |
 | `modules/addons/chatwoot/hooks.php` | the widget (`ClientAreaFooterOutput`), the reset flag on logout (`UserLogout`) | yes, same path under the WHMCS root |
+| `modules/addons/chatwoot/app.php` | the WHMCS card for a Chatwoot Dashboard App | yes, same path under the WHMCS root |
 | `tools/clear-legacy-identifiers.rb` | upgrading from 2.0.4: clears the old identifiers in Chatwoot (rails runner) | only while upgrading |
 | `tools/export-identifier-map.php`, `tools/migrate-identifiers.rb` | upgrading from 2.0.4: maps old contacts to the new identifiers instead | only while upgrading, outside the web root |
 | `docs/` | [upgrading from 2.0.4](docs/deploy.md), [contacts from 2.0.4](docs/migrate-identifiers.md) | no |
@@ -29,6 +30,7 @@ Upgrading from 2.0.4: follow [docs/deploy.md](docs/deploy.md).
 |---|---|---|
 | Enable Chatwoot | `chatwoot_enable` | turns the widget on |
 | Chatwoot URL | `chatwoot_url` | Chatwoot address, e.g. `https://chat.example.com`; a trailing slash is fine |
+| Dashboard App Origin | `chatwoot_app_origin` | origin of the Chatwoot dashboard allowed to show the WHMCS card; empty: the origin of the Chatwoot URL |
 | Website Widget Token | `chatwoot_token` | website inbox token (Inboxes → website → Configuration) |
 | Secret Key | `chatwoot_verhash` | the inbox's Identity Validation key; signs the identifier and never reaches the page |
 | Chat Box Position | `chatwoot_position` | `right` or `left` |
@@ -73,15 +75,13 @@ Contact attributes (`setCustomAttributes`), for the account the user is in now (
 | `language` | string | account language |
 | `city`, `state`, `postcode`, `country` | string | account address |
 | `active_tickets` | number | active tickets |
-| `credit_balance` | string | credit, with currency |
-| `revenue` | string | income from the account, with currency |
-| `unpaid_invoices`, `unpaid_amount` | number, string | unpaid invoices: count and total |
-| `overdue_invoices`, `overdue_amount` | number, string | overdue invoices: count and total |
+| `unpaid_invoices` | number | unpaid invoices |
+| `overdue_invoices` | number | overdue invoices |
 | `email_verified` | boolean | the account email is verified |
 | `is_affiliate` | boolean | the account is an affiliate |
 | `current_page` | string | see below |
 
-The financial attributes are in the page source for every user of the account, including invited users without invoice permissions. Keep that in mind when inviting users.
+No money amounts are sent: everything here is in the page source for every user of the account, invited users included. Agents see amounts in the WHMCS card below.
 
 Labels: `chatwoot_setlabelloggedin` is set, `chatwoot_setlabel` removed.
 
@@ -98,6 +98,22 @@ Chatwoot replaces the conversation's attributes with this set as a whole; with n
 ### `current_page`
 
 The WHMCS SystemURL plus the route, without the query string. `index.php?rp=/route` and `index.php/route` are read as the route. On `/password/reset/…`, `/user/verify/…` and `/invite/…` only the route is kept (plus `redeem`/`use`); any path is cut at a segment that looks like a token.
+
+## WHMCS card in Chatwoot (Dashboard App)
+
+`app.php` shows the WHMCS client behind the contact of a Chatwoot conversation: the account (name, company, status, client since, credit), services (product, domain, status, next due date), unpaid invoices with the balance left and an overdue flag, and open tickets, each linked to the WHMCS admin area. Read-only.
+
+**Setup**
+
+1. WHMCS Admin → Setup → Addon Modules → Chatwoot by inSave → Configure → **Access Control**: tick the admin roles that may see the card. With no role ticked nobody sees it.
+2. Chatwoot → Settings → Integrations → Dashboard apps → Add: any name, URL `<WHMCS SystemURL>modules/addons/chatwoot/app.php`.
+3. The page sends `Content-Security-Policy: frame-ancestors <Chatwoot origin>` itself. If the web server adds `X-Frame-Options: SAMEORIGIN` to every response, browsers ignore it here because `frame-ancestors` is present (checked in Chromium, WebKit and Firefox); dropping it for this path is still cleaner, e.g. with nginx `map $uri $xfo { /modules/addons/chatwoot/app.php ""; default "SAMEORIGIN"; }` and `add_header X-Frame-Options $xfo;` (an empty value sends no header).
+
+**Access.** The card uses the WHMCS admin session of the browser the agent works in: log in to the WHMCS admin area in the same browser. Chatwoot and WHMCS must be on the same site (e.g. `chat.example.com` and `billing.example.com`), otherwise the browser does not send the WHMCS session cookie into the iframe and the card asks to log in. Without a session, or for a role without access, the page returns no data.
+
+**How it works.** Chatwoot posts the conversation context to the iframe (`appContext`). The page accepts it only from the Dashboard App Origin, then posts the contact's identifier and email back to `app.php` with the WHMCS CSRF token. A `whmcs:u:<id>` identifier was signed by the widget and identifies the user; a contact without one (Telegram, Meta, a visitor) is matched by email and marked "not confirmed". Response headers: `frame-ancestors` (the Chatwoot origin only), `Cache-Control: no-store`, `Referrer-Policy: no-referrer`; no `X-Frame-Options`.
+
+Do not set `chatwootSettings.baseDomain` to share one widget session across subdomains: in SDK 4.19.1 `$chatwoot.reset()` removes the `cw_conversation` and user cookies without a domain, so a cookie set with `baseDomain` survives a logout.
 
 ## Widget reset
 

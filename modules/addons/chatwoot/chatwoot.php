@@ -2,7 +2,7 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot by inSave (v2.0.4-insave.3): Chatwoot live chat for the      *
+// * Chatwoot by inSave (v2.0.4-insave.4): Chatwoot live chat for the      *
 //   WHMCS client area. Requires WHMCS 8 or later.                         *
 // * Maintained by inSave Hosting OÜ:                                      *
 //   https://github.com/insavehosting/Chatwoot-WHMCS                       *
@@ -27,7 +27,7 @@ function chatwoot_config()
     return [
         "name"        => "Chatwoot by inSave",
         "description" => "Chatwoot live chat for the WHMCS client area, with signed user identity and page context. Maintained by inSave Hosting; based on <a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'>Chatwoot-WHMCS by WevrLabs</a> (MIT).",
-        "version"     => "2.0.4-insave.3",
+        "version"     => "2.0.4-insave.4",
         "author"      => "<a href='https://github.com/insavehosting/Chatwoot-WHMCS' target='_blank'>inSave Hosting</a>",
         "fields"      => [
             'chatwoot_enable'           => [
