@@ -2,16 +2,15 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot WHMCS Addon (v2.0.4).                                        *
-// * This addon module enables you to integrate Chatwoot with your WHMCS    *
-//   and leverage its powerful features.                                   *
-// * Tested on WHMCS Version: v8.12.                                       *
-// * For assistance on how to use and setup Chatwoot, visit                *
-//   https://www.chatwoot.com/docs/channels/website                        *
+// * Chatwoot by inSave (v2.0.4-insave.3): Chatwoot live chat for the      *
+//   WHMCS client area. Requires WHMCS 8 or later.                         *
+// * Maintained by inSave Hosting OÜ:                                      *
+//   https://github.com/insavehosting/Chatwoot-WHMCS                       *
 // *                                                                       *
 // *************************************************************************
 // *                                                                       *
-// * Contributed by: WevrLabs Hosting                                      *
+// * Based on Chatwoot-WHMCS 2.0.4 by WevrLabs Hosting (MIT):              *
+//   https://github.com/WevrLabs-Group/Chatwoot-WHMCS                      *
 // * Email: hello@wevrlabs.net                                             *
 // * Website: https://wevrlabs.net                                         *
 // *                                                                       *
@@ -26,10 +25,10 @@ use WHMCS\Database\Capsule;
 function chatwoot_config()
 {
     return [
-        "name"        => "Chatwoot",
-        "description" => "Chatwoot is a customer support tool for instant messaging channels that can help businesses provide exceptional customer support. WHMCS module contributed by: <a href='https://wevrlabs.net/?utm_source=addon_link' target='_blank'>WevrLabs Hosting</a>",
-        "version"     => "2.0.4",
-        "author"      => "<a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'><img src='https://dash.wevrlabs.net/logo.svg' alt='Contributed by WevrLabs Hosting' width='135px' /></a>",
+        "name"        => "Chatwoot by inSave",
+        "description" => "Chatwoot live chat for the WHMCS client area, with signed user identity and page context. Maintained by inSave Hosting; based on <a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'>Chatwoot-WHMCS by WevrLabs</a> (MIT).",
+        "version"     => "2.0.4-insave.3",
+        "author"      => "<a href='https://github.com/insavehosting/Chatwoot-WHMCS' target='_blank'>inSave Hosting</a>",
         "fields"      => [
             'chatwoot_enable'           => [
                 'FriendlyName' => 'Enable Chatwoot',
@@ -115,7 +114,7 @@ function chatwoot_config()
                 'Type'         => 'yesno',
                 'Size'         => '55',
                 'Default'      => 'no',
-                'Description'  => 'check this box to enable the chat box when admin is logged in as client (not recommended, as it may mess up real users\' sessions, so enable this option only for debugging purposes and make sure to logout of the user account to trigger session reset.',
+                'Description'  => 'Show the chat box while an admin is logged in to WHMCS in the same browser, including Login as Client. The widget is not identified in admin sessions, so an admin never chats as the client.',
             ],
         ],
     ];
@@ -124,4 +123,15 @@ function chatwoot_config()
 function chatwoot_activate()
 {
     return ['status' => 'success', 'description' => "Chatwoot for WHMCS has been successfully activated! Don't forget to configure the settings below!"];
+}
+
+# Runs when the version above changes (Setup -> Addon Modules after an upload).
+function chatwoot_upgrade($vars)
+{
+    # chatwoot_jscode was a setting of 2.0.0 that nothing has read since 2.0.1;
+    # it still holds the old widget snippet. Other modules' rows stay.
+    Capsule::table('tbladdonmodules')
+        ->where('module', 'chatwoot')
+        ->where('setting', 'chatwoot_jscode')
+        ->delete();
 }
