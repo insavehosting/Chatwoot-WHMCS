@@ -45,6 +45,13 @@ function chatwoot_config()
                 'Default'      => '',
                 'Description'  => 'Enter Chatwoot URL. Example: https://www.chatwoot.com',
             ],
+            'chatwoot_app_origin'       => [
+                'FriendlyName' => 'Dashboard App Origin',
+                'Type'         => 'text',
+                'Size'         => '',
+                'Default'      => '',
+                'Description'  => 'Origin of the Chatwoot dashboard allowed to show the WHMCS card (Chatwoot &rarr; Settings &rarr; Integrations &rarr; Dashboard apps, URL: your WHMCS address + modules/addons/chatwoot/app.php), e.g. https://chat.example.com. Leave empty to use the origin of the Chatwoot URL. Admin roles that may see the card: Access Control below.',
+            ],
             'chatwoot_token'            => [
                 'FriendlyName' => 'Website Widget Token',
                 'Type'         => 'text',
