@@ -5,7 +5,9 @@
 // * Chatwoot by inSave: the WHMCS card for Chatwoot Dashboard Apps.       *
 // * Chatwoot loads this page in an iframe next to a conversation and      *
 //   posts the conversation context to it; the page shows the WHMCS        *
-//   client behind the contact. Read-only.                                 *
+//   client behind the contact. With "Ticket departments" set, an agent    *
+//   can open a WHMCS ticket from the conversation, with its transcript.   *
+//   Nothing else is written, and nothing is sent to Chatwoot.             *
 // *                                                                       *
 // * Access: a WHMCS admin session in the same browser, for an admin whose *
 //   role is ticked in the addon's Access Control. Chatwoot and WHMCS must *
@@ -18,6 +20,13 @@ require __DIR__ . '/../../../init.php';
 
 use WHMCS\Config\Setting;
 use WHMCS\Database\Capsule;
+
+# Ticket from chat: limits. Declared up here because the request is handled
+# (and the script exits) before the functions further down.
+const CWAPP_TRANSCRIPT_MAX = 60000;  # characters of the ticket message
+const CWAPP_POST_MAX       = 2000000; # bytes of the posted messages
+const CWAPP_MESSAGES_MAX   = 5000;
+const CWAPP_PRIORITIES     = ['Low', 'Medium', 'High'];
 
 $cwapp_settings = Capsule::table('tbladdonmodules')->where('module', 'chatwoot')->pluck('value', 'setting')->all();
 $cwapp_origin   = cwapp_origin($cwapp_settings);
@@ -44,7 +53,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         echo cwapp_json(['error' => 'token']);
         exit;
     }
-    echo cwapp_json(cwapp_lookup((string) ($_POST['identifier'] ?? ''), (string) ($_POST['email'] ?? '')));
+    if (($_POST['action'] ?? '') === 'ticket') {
+        [$status, $answer] = cwapp_ticket($cwapp_admin, $cwapp_settings);
+        http_response_code($status);
+        echo cwapp_json($answer);
+        exit;
+    }
+    echo cwapp_json(cwapp_lookup((string) ($_POST['identifier'] ?? ''), (string) ($_POST['email'] ?? ''), $cwapp_admin, $cwapp_settings));
     exit;
 }
 
@@ -97,7 +112,7 @@ function cwapp_admin_url($path)
 # The client behind a Chatwoot contact. A whmcs:u:<id> identifier was signed
 # by the widget, so it is trusted; a contact without one (Telegram, Meta, a
 # visitor) is matched by email and marked as not confirmed.
-function cwapp_lookup($identifier, $email)
+function cwapp_lookup($identifier, $email, $admin = null, array $settings = [])
 {
     $user  = null;
     $match = 'none';
@@ -112,10 +127,12 @@ function cwapp_lookup($identifier, $email)
     }
 
     $accounts = [];
+    $canTicket = [];
     if ($user) {
         $links = Capsule::table('tblusers_clients')->where('auth_user_id', (int) $user->id)->get();
         foreach ($links as $link) {
             $accounts[(int) $link->client_id] = (bool) $link->owner;
+            $canTicket[(int) $link->client_id] = $match === 'identifier' && cwapp_user_can_ticket($link);
         }
     } elseif (filter_var($email, FILTER_VALIDATE_EMAIL)) {
         # an account email that no user logs in with
@@ -130,11 +147,13 @@ function cwapp_lookup($identifier, $email)
     foreach (array_slice($accounts, 0, 5, true) as $clientId => $isOwner) {
         $account = cwapp_account($clientId, $isOwner);
         if ($account) {
+            $account['can_ticket'] = !empty($canTicket[$clientId]);
             $out[] = $account;
         }
     }
 
     return [
+        'ticket'   => cwapp_ticket_config($admin, $settings),
         'match'    => $out ? $match : 'none',
         'user'     => $user ? [
             'id'    => (int) $user->id,
@@ -247,6 +266,250 @@ function cwapp_account($clientId, $isOwner)
         'tickets'    => $tickets,
         'tickets_n'  => count($open),
     ];
+}
+
+# --- Ticket from chat -------------------------------------------------------
+
+# "Ticket departments": Chatwoot team => WHMCS department id, "*" for a
+# conversation without a team. Departments that do not exist are dropped and
+# reported, so a typo shows up in the card instead of opening tickets nowhere.
+function cwapp_departments(array $settings)
+{
+    $raw = trim((string) ($settings['chatwoot_ticket_departments'] ?? ''));
+    $out = ['map' => [], 'names' => [], 'ignored' => []];
+    if ($raw === '') {
+        return $out;
+    }
+    $existing = Capsule::table('tblticketdepartments')->pluck('name', 'id')->all();
+    foreach (explode(',', $raw) as $pair) {
+        $pair = trim($pair);
+        if ($pair === '') {
+            continue;
+        }
+        if (!preg_match('/^([^=]+)=\s*(\d+)$/', $pair, $m) || !isset($existing[(int) $m[2]])) {
+            $out['ignored'][] = $pair;
+            continue;
+        }
+        $out['map'][strtolower(trim($m[1]))] = (int) $m[2];
+    }
+    foreach (array_unique(array_values($out['map'])) as $id) {
+        $out['names'][$id] = (string) $existing[$id];
+    }
+    return $out;
+}
+
+# WHMCS's own permission check for the admin behind the session.
+function cwapp_admin_may_open_tickets($admin)
+{
+    try {
+        if (!$admin || !class_exists('\WHMCS\User\Admin')) {
+            return false;
+        }
+        $model = \WHMCS\User\Admin::find((int) $admin->id);
+        return $model && method_exists($model, 'hasPermission') && (bool) $model->hasPermission('Open New Ticket');
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+# A user may open tickets for an account they own, or with the "tickets"
+# permission when invited.
+function cwapp_user_can_ticket($link)
+{
+    if ((int) $link->owner === 1) {
+        return true;
+    }
+    $permissions = array_map('trim', explode(',', (string) ($link->permissions ?? '')));
+    return in_array('tickets', $permissions, true);
+}
+
+# What the card needs to offer a ticket: the departments to choose from and
+# why there is no button, if there is none.
+function cwapp_ticket_config($admin, array $settings)
+{
+    $departments = cwapp_departments($settings);
+    if (!$departments['map']) {
+        return ['enabled' => false, 'reason' => 'off', 'ignored' => $departments['ignored']];
+    }
+    if (!cwapp_admin_may_open_tickets($admin)) {
+        return ['enabled' => false, 'reason' => 'permission', 'ignored' => $departments['ignored']];
+    }
+    $list = [];
+    foreach ($departments['names'] as $id => $name) {
+        $list[] = ['id' => $id, 'name' => $name];
+    }
+    return [
+        'enabled'     => true,
+        'teams'       => $departments['map'],
+        'departments' => $list,
+        'ignored'     => $departments['ignored'],
+        'max'         => CWAPP_TRANSCRIPT_MAX,
+    ];
+}
+
+# The public part of a conversation as plain text: client (0) and agent (1)
+# messages that are not private notes, oldest first. Activity (2) and
+# template (3) messages stay out. Attachments are named, never linked: the
+# links Chatwoot hands out are signed and open the file to anyone. When the
+# text is longer than the ticket allows, the oldest messages go.
+function cwapp_transcript($chat, array $messages)
+{
+    $rows = [];
+    foreach ($messages as $message) {
+        if (!is_array($message) || !in_array($message['type'] ?? null, [0, 1], true) || ($message['private'] ?? true) !== false) {
+            continue;
+        }
+        # Chatwoot's created_at: Unix seconds (a message just sent may carry a fraction)
+        $time = $message['time'] ?? null;
+        if ((!is_int($time) && !is_float($time)) || $time <= 0) {
+            continue;
+        }
+        $time = (int) $time;
+        $text = is_string($message['text'] ?? null) ? $message['text'] : '';
+        $files = [];
+        foreach ((array) ($message['files'] ?? []) as $file) {
+            if (is_string($file) && trim($file) !== '') {
+                $files[] = preg_replace('/[\x00-\x1F\x7F]/u', '', mb_substr(trim($file), 0, 200));
+            }
+        }
+        if (trim($text) === '' && !$files) {
+            continue;
+        }
+        $name = is_string($message['name'] ?? null) && trim($message['name']) !== '' ? trim($message['name'])
+            : ($message['type'] === 0 ? 'Client' : 'Agent');
+        $line = '[' . gmdate('Y-m-d H:i', $time) . ' UTC] ' . preg_replace('/\s+/u', ' ', mb_substr($name, 0, 100)) . ': '
+            . str_replace(["\r\n", "\r"], "\n", $text);
+        foreach ($files as $file) {
+            $line .= "\n" . '(attachment ' . $file . ' is in the chat)';
+        }
+        $rows[] = ['time' => $time, 'id' => (int) ($message['id'] ?? 0), 'line' => $line, 'client' => $message['type'] === 0, 'text' => $text];
+    }
+    usort($rows, function ($a, $b) {
+        return [$a['time'], $a['id']] <=> [$b['time'], $b['id']];
+    });
+    if (!$rows) {
+        return null;
+    }
+
+    $first   = null;
+    foreach ($rows as $row) {
+        if ($row['client'] && trim($row['text']) !== '') {
+            $first = $row['text'];
+            break;
+        }
+    }
+    $from    = gmdate('Y-m-d H:i', $rows[0]['time']);
+    $to      = gmdate('Y-m-d H:i', $rows[count($rows) - 1]['time']);
+    $omitted = 0;
+    $lines   = array_column($rows, 'line');
+    do {
+        $head = 'Chat transcript #' . $chat . ', ' . $from . ' – ' . $to . ' UTC'
+            . ($omitted ? "\n" . $omitted . ' earlier message' . ($omitted === 1 ? '' : 's') . ' omitted to fit the ticket.' : '');
+        $text = $head . "\n\n" . implode("\n\n", $lines);
+        if (mb_strlen($text) <= CWAPP_TRANSCRIPT_MAX || count($lines) === 1) {
+            break;
+        }
+        array_shift($lines);
+        $omitted++;
+    } while (true);
+    if (mb_strlen($text) > CWAPP_TRANSCRIPT_MAX) {
+        $text = mb_substr($text, 0, CWAPP_TRANSCRIPT_MAX);
+    }
+
+    return ['text' => $text, 'count' => count($lines), 'omitted' => $omitted, 'first' => $first];
+}
+
+# The subject every ticket from chat starts with; it is also how a second
+# ticket for the same conversation is recognised.
+function cwapp_ticket_prefix($chat)
+{
+    return 'Chat #' . (int) $chat . ':';
+}
+
+function cwapp_ticket_links($id, $tid, $c)
+{
+    return [
+        'id'         => (int) $id,
+        'tid'        => (string) $tid,
+        'admin_url'  => cwapp_admin_url('supporttickets.php?action=view&id=' . (int) $id),
+        'client_url' => rtrim((string) Setting::getValue('SystemURL'), '/') . '/viewticket.php?tid=' . rawurlencode((string) $tid)
+            . '&c=' . rawurlencode((string) $c),
+    ];
+}
+
+# POST action=ticket. Everything the card sent is checked again here: the
+# contact must be a signed-in user (whmcs:u:<id>) of the account, allowed to
+# open tickets; the department must be one of the setting; the admin must
+# hold WHMCS's "Open New Ticket". Returns [HTTP status, answer].
+function cwapp_ticket($admin, array $settings)
+{
+    $departments = cwapp_departments($settings);
+    if (!$departments['map']) {
+        return [400, ['error' => 'off']];
+    }
+    if (!cwapp_admin_may_open_tickets($admin)) {
+        return [403, ['error' => 'permission']];
+    }
+    if (!preg_match('/^whmcs:u:(\d+)$/', (string) ($_POST['identifier'] ?? ''), $m)) {
+        return [403, ['error' => 'identity']];
+    }
+    $user = Capsule::table('tblusers')->where('id', (int) $m[1])->first();
+    $clientId = (int) ($_POST['client'] ?? 0);
+    $link = $user ? Capsule::table('tblusers_clients')->where('auth_user_id', (int) $user->id)->where('client_id', $clientId)->first() : null;
+    if (!$link || !cwapp_user_can_ticket($link)) {
+        return [403, ['error' => 'user']];
+    }
+    $deptId = (int) ($_POST['dept'] ?? 0);
+    if (!in_array($deptId, array_values($departments['map']), true)) {
+        return [400, ['error' => 'department']];
+    }
+    $chat = (int) ($_POST['chat'] ?? 0);
+    $priority = (string) ($_POST['priority'] ?? 'Medium');
+    if ($chat <= 0 || !in_array($priority, CWAPP_PRIORITIES, true)) {
+        return [400, ['error' => 'request']];
+    }
+    if (($_POST['loaded'] ?? '') !== '1') {
+        return [400, ['error' => 'incomplete']];
+    }
+    $raw = (string) ($_POST['messages'] ?? '');
+    $messages = strlen($raw) <= CWAPP_POST_MAX ? json_decode($raw, true) : null;
+    if (!is_array($messages) || count($messages) > CWAPP_MESSAGES_MAX) {
+        return [400, ['error' => 'messages']];
+    }
+    $transcript = cwapp_transcript($chat, $messages);
+    if (!$transcript) {
+        return [400, ['error' => 'empty']];
+    }
+
+    $prefix = cwapp_ticket_prefix($chat);
+    $existing = Capsule::table('tbltickets')->where('userid', $clientId)->where('merged_ticket_id', 0)
+        ->where('title', 'like', $prefix . '%')->first();
+    if ($existing) {
+        return [200, ['duplicate' => true, 'ticket' => cwapp_ticket_links($existing->id, $existing->tid, $existing->c)]];
+    }
+
+    $topic = trim(preg_replace('/\s+/u', ' ', (string) ($_POST['topic'] ?? '')));
+    if ($topic === '') {
+        $topic = trim(preg_replace('/\s+/u', ' ', (string) $transcript['first']));
+    }
+    $subject = mb_substr($prefix . ' ' . ($topic !== '' ? mb_substr($topic, 0, 60) : 'conversation'), 0, 200);
+
+    $result = localAPI('OpenTicket', [
+        'clientid' => $clientId,
+        'userid'   => (int) $user->id,
+        'deptid'   => $deptId,
+        'subject'  => $subject,
+        'message'  => $transcript['text'],
+        'priority' => $priority,
+        'admin'    => true,
+        'markdown' => false,
+    ], (string) $admin->username);
+    if (($result['result'] ?? '') !== 'success') {
+        return [502, ['error' => 'whmcs', 'message' => (string) ($result['message'] ?? '')]];
+    }
+    logActivity('Chatwoot card: ticket #' . $result['tid'] . ' opened from chat #' . $chat);
+
+    return [200, ['ticket' => cwapp_ticket_links($result['id'], $result['tid'], $result['c'] ?? ''), 'messages' => $transcript['count'], 'omitted' => $transcript['omitted']]];
 }
 
 function cwapp_date($value)
@@ -382,6 +645,20 @@ details[open] > summary::before { transform: rotate(45deg); }
 .side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
 .amount { font-weight: 600; font-variant-numeric: tabular-nums; }
 .empty { padding: 6px 0 2px; color: rgb(var(--muted)); }
+.note { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgb(var(--amber-bg)); color: rgb(var(--amber)); font-size: 12px; }
+.actions { margin-top: 10px; }
+button.button { font: inherit; cursor: pointer; }
+.button.primary { background: rgb(var(--link)); border-color: rgb(var(--link)); color: rgb(var(--surface)); }
+.button.primary:hover { background: rgb(var(--link)); filter: brightness(1.08); }
+.button[disabled] { opacity: .55; cursor: not-allowed; filter: none; }
+.ticket { margin-top: 10px; padding: 12px; border: 1px solid rgb(var(--border)); border-radius: 10px; background: rgb(var(--raised)); display: grid; gap: 10px; }
+.ticket label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: rgb(var(--muted)); }
+.ticket select, .ticket input { font: inherit; font-weight: 400; color: rgb(var(--text)); background: rgb(var(--surface)); border: 1px solid rgb(var(--border));
+  border-radius: 8px; padding: 6px 8px; min-width: 0; width: 100%; }
+.subject { display: flex; align-items: center; gap: 6px; }
+.subject span { flex: none; color: rgb(var(--text)); font-weight: 500; }
+.result { display: grid; gap: 6px; }
+.result .copy { display: flex; gap: 6px; }
 @media (max-width: 460px) { .row { flex-direction: column; gap: 4px; } .side { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px; text-align: left; } }
 CSS;
 }
@@ -391,6 +668,9 @@ function cwapp_script()
     return <<<'JS'
 (function () {
   var cfg = window.CWAPP || {}, root = document.documentElement, card = document.getElementById('card'), last = null;
+  // The open conversation as Chatwoot last sent it: kept up to date on every
+  // appContext, so the ticket form sees messages loaded after the card was.
+  var conv = null, shown = null, reopen = {}, refreshing = false;
   var TONES = {
     Active: 'green', Pending: 'blue', Suspended: 'amber', Fraud: 'red', Inactive: 'gray', Closed: 'red',
     Open: 'blue', 'Customer-Reply': 'amber', Answered: 'green', 'In Progress': 'blue'
@@ -440,20 +720,217 @@ function cwapp_script()
     return add(li, add.apply(null, [el('div', null, 'main')].concat(main)), add.apply(null, [el('div', null, 'side')].concat(side)));
   }
 
+  // --- ticket from chat ---------------------------------------------------
+  function fileName(file) {
+    try {
+      var name = decodeURIComponent(new URL(file.data_url).pathname.split('/').pop() || '');
+      if (name) return name;
+    } catch (e) {}
+    return 'file' + (file.extension ? '.' + file.extension : '');
+  }
+  // The public part of the conversation: client (0) and agent (1) messages
+  // that are not private notes. Attachments go by name only.
+  function publicMessages() {
+    var list = (conv && Array.isArray(conv.messages)) ? conv.messages : [];
+    return list.filter(function (m) {
+      return m && (m.message_type === 0 || m.message_type === 1) && m.private === false;
+    }).map(function (m) {
+      var sender = m.sender || {};
+      return {
+        id: m.id, type: m.message_type, private: false, time: m.created_at,
+        name: sender.available_name || sender.name || '',
+        text: typeof m.content === 'string' ? m.content : '',
+        files: (m.attachments || []).map(fileName)
+      };
+    }).filter(function (m) {
+      return typeof m.time === 'number' && m.time > 0 && (m.text.trim() !== '' || m.files.length);
+    }).sort(function (a, b) { return a.time - b.time || a.id - b.id; });
+  }
+  function firstClientText(messages) {
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].type === 0 && messages[i].text.trim()) return messages[i].text.replace(/\s+/g, ' ').trim().slice(0, 60);
+    }
+    return '';
+  }
+  function select(field, options, value) {
+    var node = el('select');
+    node.setAttribute('data-field', field);
+    options.forEach(function (o) {
+      var option = el('option', o.name);
+      option.value = String(o.id);
+      if (String(o.id) === String(value)) option.selected = true;
+      node.appendChild(option);
+    });
+    return node;
+  }
+  function labelled(text, control) {
+    return add(el('label', text), control);
+  }
+  // Count and button follow the conversation as Chatwoot last sent it.
+  function refreshForm(form) {
+    var messages = publicMessages(), loaded = !!(conv && conv.allMessagesLoaded === true);
+    var info = form.querySelector('[data-field="count"]'), button = form.querySelector('[data-create]');
+    if (!loaded) {
+      info.textContent = 'Not every message is loaded: scroll the conversation up to its first message, then press Refresh.';
+    } else if (!messages.length) {
+      info.textContent = 'No public messages to put into a ticket.';
+    } else {
+      info.textContent = messages.length + ' message' + (messages.length === 1 ? '' : 's') + ' will go into the ticket.';
+    }
+    info.setAttribute('data-loaded', loaded ? '1' : '0');
+    button.disabled = !loaded || !messages.length || form.getAttribute('data-busy') === '1';
+    var prefix = form.querySelector('[data-field="prefix"]');
+    if (prefix) prefix.textContent = 'Chat #' + (conv ? conv.id : '?') + ':';
+  }
+  function refreshForms() {
+    if (!card) return;
+    Array.prototype.forEach.call(card.querySelectorAll('[data-ticket-form]'), refreshForm);
+  }
+  function result(form, answer) {
+    var box = form.querySelector('[data-result]');
+    box.textContent = '';
+    if (answer.error) {
+      var reasons = {
+        user: 'This user may not open tickets for the account.', identity: 'The contact is not a signed-in WHMCS user.',
+        permission: 'Your admin role may not open tickets.', department: 'That department is not in the setting.',
+        incomplete: 'Not every message is loaded: scroll up and press Refresh.', empty: 'No public messages to put into a ticket.',
+        whmcs: 'WHMCS refused the ticket' + (answer.message ? ': ' + answer.message : '.'), login: 'The WHMCS admin session has ended.'
+      };
+      add(box, el('p', reasons[answer.error] || 'Request refused (' + answer.error + ').', 'note'));
+      return;
+    }
+    var t = answer.ticket;
+    box.setAttribute('data-tid', t.tid);
+    add(box, el('p', (answer.duplicate ? 'This chat already has ticket #' : 'Ticket #') + t.tid + (answer.duplicate ? '.' : ' opened.')),
+      link('Open in WHMCS', t.admin_url));
+    var input = el('input');
+    input.readOnly = true;
+    input.value = t.client_url;
+    input.setAttribute('data-field', 'client-url');
+    input.setAttribute('aria-label', 'Link for the client');
+    var copy = el('button', 'Copy', 'button');
+    copy.type = 'button';
+    copy.onclick = function () {
+      input.focus(); input.select();
+      var done = function () { copy.textContent = 'Copied'; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t.client_url).then(done, function () { if (document.execCommand('copy')) done(); });
+      } else if (document.execCommand('copy')) done();
+    };
+    add(box, el('span', 'Link for the client, to paste into the chat:', 'sub'), add(el('div', null, 'copy'), input, copy));
+  }
+  function ticketForm(acc, contact, ticket) {
+    var form = el('div', null, 'ticket');
+    form.setAttribute('data-ticket-form', acc.id);
+    var team = conv && conv.meta && conv.meta.team && conv.meta.team.name ? String(conv.meta.team.name).toLowerCase() : '';
+    var dept = ticket.teams[team] || ticket.teams['*'] || (ticket.departments[0] && ticket.departments[0].id);
+    var topic = el('input');
+    topic.setAttribute('data-field', 'topic');
+    topic.maxLength = 60;
+    topic.value = firstClientText(publicMessages());
+    var priority = select('priority', ['Low', 'Medium', 'High'].map(function (p) { return { id: p, name: p }; }), 'Medium');
+    var prefix = el('span');
+    prefix.setAttribute('data-field', 'prefix');
+    var info = el('p', null, 'sub');
+    info.setAttribute('data-field', 'count');
+    var create = el('button', 'Create ticket', 'button primary');
+    create.type = 'button';
+    create.setAttribute('data-create', '');
+    var out = el('div', null, 'result');
+    out.setAttribute('data-result', '');
+    create.onclick = function () {
+      if (create.disabled || !conv) return;
+      form.setAttribute('data-busy', '1');
+      refreshForm(form);
+      var body = new FormData();
+      body.append('token', cfg.token);
+      body.append('action', 'ticket');
+      body.append('identifier', contact.identifier || '');
+      body.append('client', acc.id);
+      body.append('dept', form.querySelector('[data-field="dept"]').value);
+      body.append('topic', topic.value);
+      body.append('priority', priority.value);
+      body.append('chat', conv.id);
+      body.append('loaded', conv.allMessagesLoaded === true ? '1' : '0');
+      body.append('messages', JSON.stringify(publicMessages()));
+      fetch(location.pathname, { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (answer) { result(form, answer); })
+        .catch(function () { result(form, { error: 'network' }); })
+        .then(function () { form.removeAttribute('data-busy'); refreshForm(form); });
+    };
+    add(form,
+      labelled('Department', select('dept', ticket.departments, dept)),
+      labelled('Subject', add(el('div', null, 'subject'), prefix, topic)),
+      labelled('Priority', priority),
+      info, add(el('div'), create), out);
+    refreshForm(form);
+    return form;
+  }
+  // Refresh redraws the card; a ticket form that was open comes back with
+  // what the agent typed in it.
+  function keepForms() {
+    reopen = {};
+    if (!card) return;
+    Array.prototype.forEach.call(card.querySelectorAll('[data-ticket-form]'), function (form) {
+      reopen[form.getAttribute('data-ticket-form')] = {
+        dept: form.querySelector('[data-field="dept"]').value,
+        topic: form.querySelector('[data-field="topic"]').value,
+        priority: form.querySelector('[data-field="priority"]').value
+      };
+    });
+  }
+  function ticketPart(box, acc, data, contact) {
+    var ticket = data.ticket || {};
+    if (!ticket.enabled || data.match === 'email') return;
+    if (!acc.can_ticket) {
+      add(box, el('p', 'This user may not open tickets for this account (no "tickets" permission).', 'note'));
+      return;
+    }
+    var open = el('button', 'Open ticket', 'button');
+    open.type = 'button';
+    open.setAttribute('data-open-ticket', acc.id);
+    var wrap = add(el('div', null, 'actions'), open);
+    open.onclick = function () {
+      var existing = box.querySelector('[data-ticket-form]');
+      if (existing) { existing.remove(); open.setAttribute('aria-expanded', 'false'); return; }
+      open.setAttribute('aria-expanded', 'true');
+      wrap.after(ticketForm(acc, contact, ticket));
+    };
+    add(box, wrap);
+    var kept = reopen[String(acc.id)];
+    if (kept) {
+      open.onclick();
+      var form = box.querySelector('[data-ticket-form]');
+      ['dept', 'topic', 'priority'].forEach(function (f) {
+        var node = form.querySelector('[data-field="' + f + '"]');
+        if (node && kept[f] !== undefined && (f !== 'dept' || node.querySelector('option[value="' + kept[f] + '"]'))) node.value = kept[f];
+      });
+    }
+  }
+
   function render(data, contact) {
     card.textContent = '';
+    shown = data;
     var who = el('div', null, 'who');
     var refresh = el('button', null, 'icon');
     refresh.type = 'button';
     refresh.title = 'Refresh';
     refresh.setAttribute('aria-label', 'Refresh');
     refresh.innerHTML = REFRESH;
-    refresh.onclick = function () { last = null; requestContext(); };
+    refresh.onclick = function () { last = null; refreshing = true; requestContext(); };
     if (data.match === 'identifier') who.appendChild(pill('Signed-in user', 'iris'));
     if (data.match === 'email') who.appendChild(pill('Matched by email, not confirmed', 'amber'));
     if (data.match) who.setAttribute('data-match', data.match);
     if (data.user) who.appendChild(el('span', data.user.name + ' · ' + data.user.email));
     add(card, add(el('div', null, 'top'), who, refresh));
+    var ticket = data.ticket || {};
+    if (ticket.ignored && ticket.ignored.length) {
+      add(card, el('p', 'Ticket departments: ignored ' + ticket.ignored.join(', ') + ' (no such WHMCS department).', 'note'));
+    }
+    if (ticket.enabled && data.match === 'email') {
+      add(card, el('p', 'To open a ticket, first merge this contact in Chatwoot with the contact of the signed-in WHMCS user.', 'note'));
+    }
 
     if (!data.accounts.length) {
       add(card, add(el('div', null, 'state'), el('p', 'No WHMCS client for ' + (contact.email || contact.name || 'this contact') + '.')));
@@ -491,6 +968,7 @@ function cwapp_script()
           [link('#' + t.tid, t.url), el('div', t.title, 'sub title')],
           [pill(t.status), t.last_reply ? el('div', 'last reply ' + t.last_reply, 'sub') : null]);
       }));
+      ticketPart(box, acc, data, contact);
       card.appendChild(box);
     });
   }
@@ -500,6 +978,8 @@ function cwapp_script()
       state('This conversation has no contact with an email or a WHMCS identifier.');
       return;
     }
+    if (refreshing) keepForms(); else reopen = {};
+    refreshing = false;
     state('Loading…');
     var form = new FormData();
     form.append('token', cfg.token);
@@ -510,6 +990,7 @@ function cwapp_script()
       .then(function (data) {
         if (data.error) { state(data.error === 'login' ? 'The WHMCS admin session has ended: reload after logging in.' : 'Request refused (' + data.error + ').'); return; }
         render(data, contact);
+        reopen = {};
       })
       .catch(function () { state('Could not load the client.'); });
   }
@@ -529,11 +1010,13 @@ function cwapp_script()
     root.classList.toggle('dark', dark);
     root.classList.toggle('light', !dark);
     if (!cfg.token || !card) return;
-    // Chatwoot sends the context again on theme and attribute changes: load
-    // the client once per contact, again only on Refresh.
+    conv = message.data.conversation || null;
+    // Chatwoot sends the context again on theme and attribute changes and on
+    // Refresh: load the client once per contact, again only on Refresh; the
+    // conversation (for a ticket) is taken from every context.
     var contact = message.data.contact || null;
     var key = contact ? [contact.id, contact.identifier, contact.email].join('|') : '';
-    if (key === last) return;
+    if (key === last) { refreshForms(); return; }
     last = key;
     load(contact);
   });

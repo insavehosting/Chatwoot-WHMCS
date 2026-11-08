@@ -2,7 +2,7 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot by inSave (v2.0.4-insave.6): Chatwoot live chat for the      *
+// * Chatwoot by inSave (v2.0.4-insave.7): Chatwoot live chat for the      *
 //   WHMCS client area. Requires WHMCS 8 or later.                         *
 // * Maintained by inSave Hosting OÜ:                                      *
 //   https://github.com/insavehosting/Chatwoot-WHMCS                       *
@@ -27,7 +27,7 @@ function chatwoot_config()
     return [
         "name"        => "Chatwoot by inSave",
         "description" => "Chatwoot live chat for the WHMCS client area, with signed user identity and page context. Maintained by inSave Hosting; based on <a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'>Chatwoot-WHMCS by WevrLabs</a> (MIT).",
-        "version"     => "2.0.4-insave.6",
+        "version"     => "2.0.4-insave.7",
         "author"      => "<a href='https://github.com/insavehosting/Chatwoot-WHMCS' target='_blank'>inSave Hosting</a>",
         "fields"      => [
             'chatwoot_enable'           => [
@@ -51,6 +51,13 @@ function chatwoot_config()
                 'Size'         => '',
                 'Default'      => '',
                 'Description'  => 'Origin of the Chatwoot dashboard allowed to show the WHMCS card (Chatwoot &rarr; Settings &rarr; Integrations &rarr; Dashboard apps, URL: your WHMCS address + modules/addons/chatwoot/app.php), e.g. https://chat.example.com. Leave empty to use the origin of the Chatwoot URL. Admin roles that may see the card: Access Control below.',
+            ],
+            'chatwoot_ticket_departments' => [
+                'FriendlyName' => 'Ticket departments',
+                'Type'         => 'text',
+                'Size'         => '',
+                'Default'      => '',
+                'Description'  => 'Lets agents open a WHMCS ticket from a conversation in the WHMCS card, with its transcript. Chatwoot team = WHMCS department ID, comma-separated; <code>*</code> is a conversation without a team, e.g. <code>sales=2,support=3,*=1</code>. Empty: no ticket button. The admin also needs the "Open New Ticket" permission.',
             ],
             'chatwoot_token'            => [
                 'FriendlyName' => 'Website Widget Token',

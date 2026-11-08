@@ -23,6 +23,7 @@ function cw_stand_boot(string $scenario, string $chatwootUrl): void
         'chatwoot_setlabelloggedin' => 'client',
         'chatwoot_token'            => CW_STAND_TOKEN,
         'chatwoot_url'              => $chatwootUrl,
+        'chatwoot_ticket_departments' => 'sales=2,billing=4,support=3,*=1',
         'chatwoot_verhash'          => CW_STAND_SECRET,
         'version'                   => '2.0.4',
     ];
@@ -37,11 +38,13 @@ function cw_stand_boot(string $scenario, string $chatwootUrl): void
         ['setting' => 'SystemURL', 'value' => 'https://billing.example.test/'],
         ['setting' => 'Version', 'value' => '8.13.1-release.1'],
     ];
+    // permissions as WHMCS keeps them: NULL for an owner, a comma list for an invited user
     CwStand::$db['tblusers_clients'] = [
-        ['auth_user_id' => 10, 'client_id' => 100, 'owner' => 1],
-        ['auth_user_id' => 11, 'client_id' => 100, 'owner' => 0],
-        ['auth_user_id' => 30, 'client_id' => 300, 'owner' => 1],
-        ['auth_user_id' => 41, 'client_id' => 400, 'owner' => 1],
+        ['auth_user_id' => 10, 'client_id' => 100, 'owner' => 1, 'permissions' => null],
+        ['auth_user_id' => 11, 'client_id' => 100, 'owner' => 0, 'permissions' => 'profile,contacts,invoices'],
+        ['auth_user_id' => 13, 'client_id' => 100, 'owner' => 0, 'permissions' => 'profile,tickets'],
+        ['auth_user_id' => 30, 'client_id' => 300, 'owner' => 1, 'permissions' => null],
+        ['auth_user_id' => 41, 'client_id' => 400, 'owner' => 1, 'permissions' => null],
     ];
     CwStand::$db['tblhosting'] = [
         ['id' => 500, 'userid' => 100, 'packageid' => 7, 'domain' => 'acme.example', 'domainstatus' => 'Active',
@@ -64,14 +67,25 @@ function cw_stand_boot(string $scenario, string $chatwootUrl): void
         ['id' => 1, 'invoiceid' => 702, 'amountin' => '5.00', 'amountout' => '0.00'],
     ];
     CwStand::$db['tbltickets'] = [
-        ['id' => 1, 'tid' => 'ABC123', 'userid' => 100, 'title' => 'Cannot log in', 'status' => 'Open',
+        ['id' => 1, 'tid' => 'ABC123', 'c' => 'cAbc', 'userid' => 100, 'title' => 'Cannot log in', 'status' => 'Open',
          'lastreply' => '2026-10-29 10:00:00', 'merged_ticket_id' => 0],
-        ['id' => 2, 'tid' => 'XYZ999', 'userid' => 300, 'title' => 'Other client', 'status' => 'Open',
+        ['id' => 2, 'tid' => 'XYZ999', 'c' => 'cXyz', 'userid' => 300, 'title' => 'Other client', 'status' => 'Open',
          'lastreply' => '2026-10-29 10:00:00', 'merged_ticket_id' => 0],
-        ['id' => 3, 'tid' => 'OLD111', 'userid' => 100, 'title' => 'Closed one', 'status' => 'Closed',
+        ['id' => 3, 'tid' => 'OLD111', 'c' => 'cOld', 'userid' => 100, 'title' => 'Closed one', 'status' => 'Closed',
          'lastreply' => '2026-01-01 10:00:00', 'merged_ticket_id' => 0],
-        ['id' => 4, 'tid' => 'MRG222', 'userid' => 100, 'title' => 'Merged one', 'status' => 'Open',
+        ['id' => 4, 'tid' => 'MRG222', 'c' => 'cMrg', 'userid' => 100, 'title' => 'Chat #8: merged into another', 'status' => 'Open',
          'lastreply' => '2026-10-28 10:00:00', 'merged_ticket_id' => 1],
+    ];
+    // tickets the card opened in earlier requests of this run
+    foreach (CwStand::log() as $entry) {
+        if (($entry['kind'] ?? '') === 'ticket') {
+            CwStand::$db['tbltickets'][] = $entry['row'];
+        }
+    }
+    CwStand::$db['tblticketdepartments'] = [
+        ['id' => 1, 'name' => 'General Support'], ['id' => 2, 'name' => 'Sales &amp; Upgrades'],
+        ['id' => 3, 'name' => 'Technical Support'], ['id' => 4, 'name' => 'Billing &amp; Payments'],
+        ['id' => 5, 'name' => 'Abuse &amp; Security'], ['id' => 6, 'name' => 'Domain Management'],
     ];
     CwStand::$db['tblticketstatuses'] = [
         ['title' => 'Open', 'showactive' => 1],
@@ -81,16 +95,19 @@ function cw_stand_boot(string $scenario, string $chatwootUrl): void
     CwStand::$db['tblcurrencies'] = [
         ['id' => 1, 'code' => 'USD', 'prefix' => '$', 'suffix' => ' USD', 'default' => 1],
     ];
-    // Admins: 1 has a role with access to the addon, 2 does not, 3 is disabled.
+    // Admins: 1 has a role with access to the addon, 2 does not, 3 is disabled,
+    // 4 has access to the card but not WHMCS's "Open New Ticket".
     CwStand::$db['tbladmins'] = [
-        ['id' => 1, 'roleid' => 1, 'disabled' => 0],
-        ['id' => 2, 'roleid' => 2, 'disabled' => 0],
-        ['id' => 3, 'roleid' => 1, 'disabled' => 1],
+        ['id' => 1, 'roleid' => 1, 'disabled' => 0, 'username' => 'agent1', 'perms' => 'Open New Ticket'],
+        ['id' => 2, 'roleid' => 2, 'disabled' => 0, 'username' => 'agent2', 'perms' => 'Open New Ticket'],
+        ['id' => 3, 'roleid' => 1, 'disabled' => 1, 'username' => 'agent3', 'perms' => 'Open New Ticket'],
+        ['id' => 4, 'roleid' => 1, 'disabled' => 0, 'username' => 'agent4', 'perms' => ''],
     ];
     CwStand::$db['tblusers'] = [
         ['id' => 10, 'first_name' => 'Olga', 'last_name' => 'Owner', 'email' => 'owner@example.test'],
         ['id' => 11, 'first_name' => 'Ivan', 'last_name' => 'Invited', 'email' => 'invited@example.test'],
         ['id' => 12, 'first_name' => 'Nora', 'last_name' => 'Noclient', 'email' => 'nobody@example.test'],
+        ['id' => 13, 'first_name' => 'Tina', 'last_name' => 'Tickets', 'email' => 'tickets@example.test'],
         ['id' => 30, 'first_name' => '</script>', 'last_name' => 'O&#039;Brien\\', 'email' => 'tricky@example.test'],
     ];
     CwStand::$db['tblclients'] = [

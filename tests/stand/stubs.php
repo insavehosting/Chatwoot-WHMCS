@@ -20,6 +20,26 @@ namespace {
         /** File that counts localAPI calls across requests. */
         public static $counter = null;
 
+        /** JSON lines: tickets opened, OpenTicket calls and activity log entries of a run (CW_STAND_LOG). */
+        public static function log(): array
+        {
+            $file = getenv('CW_STAND_LOG');
+            if (!$file || !is_file($file)) {
+                return [];
+            }
+            return array_map(function ($line) {
+                return json_decode($line, true);
+            }, array_filter(explode("\n", (string) file_get_contents($file))));
+        }
+
+        public static function append(array $entry): void
+        {
+            $file = getenv('CW_STAND_LOG');
+            if ($file) {
+                file_put_contents($file, json_encode($entry, JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND | LOCK_EX);
+            }
+        }
+
         public static function countApiCall(): void
         {
             if (self::$counter === null) {
@@ -139,6 +159,9 @@ namespace {
                     $actual = $row[$column] ?? null;
                     if ($op === 'in') {
                         $ok = in_array((string) $actual, $value, true);
+                    } elseif (strtolower((string) $op) === 'like') {
+                        $pattern = '/^' . str_replace(['%', '_'], ['.*', '.'], preg_quote((string) $value, '/')) . '$/su';
+                        $ok = (bool) preg_match($pattern, (string) $actual);
                     } else {
                         $ok = $op === '=' ? (string) $actual === (string) $value
                             : ($op === '!=' || $op === '<>' ? (string) $actual !== (string) $value : false);
@@ -237,9 +260,23 @@ namespace {
         }
     }
 
-    function localAPI($command, $data)
+    function logActivity($message)
+    {
+        CwStand::append(['kind' => 'activity', 'message' => $message]);
+    }
+
+    function localAPI($command, $data, $adminUser = null)
     {
         CwStand::countApiCall();
+        if ($command === 'OpenTicket') {
+            $n = 1 + count(array_filter(CwStand::log(), function ($e) {
+                return ($e['kind'] ?? '') === 'ticket';
+            }));
+            $row = ['id' => 900 + $n, 'tid' => 'CW' . (1000 + $n), 'c' => 'code' . $n, 'userid' => (int) $data['clientid'],
+                    'title' => $data['subject'], 'status' => 'Open', 'lastreply' => '2026-11-08 10:00:00', 'merged_ticket_id' => 0];
+            CwStand::append(['kind' => 'ticket', 'row' => $row, 'call' => $data, 'admin' => $adminUser]);
+            return ['result' => 'success', 'id' => $row['id'], 'tid' => $row['tid'], 'c' => $row['c']];
+        }
         if ($command !== 'GetClientsDetails') {
             return ['result' => 'error', 'message' => 'not stubbed'];
         }
@@ -254,6 +291,35 @@ namespace WHMCS\Database {
         public static function table($table)
         {
             return new \CwStandQuery($table);
+        }
+    }
+}
+
+namespace WHMCS\User {
+    // The admin model's own permission check, as WHMCS has it (hasPermission
+    // takes a permission name or id); permissions come from tbladmins.perms here.
+    final class Admin
+    {
+        private $row;
+
+        private function __construct(array $row)
+        {
+            $this->row = $row;
+        }
+
+        public static function find($id)
+        {
+            foreach (\CwStand::$db['tbladmins'] ?? [] as $row) {
+                if ((int) $row['id'] === (int) $id) {
+                    return new self($row);
+                }
+            }
+            return null;
+        }
+
+        public function hasPermission($permission)
+        {
+            return in_array($permission, array_filter(explode(',', (string) ($this->row['perms'] ?? ''))), true);
         }
     }
 }

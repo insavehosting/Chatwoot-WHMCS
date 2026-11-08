@@ -71,11 +71,13 @@ def cli_checks():
     check('chatwoot_upgrade removes chatwoot_jscode of this module only',
           not any(r['module'] == 'chatwoot' and r['setting'] == 'chatwoot_jscode' for r in rows)
           and any(r['module'] == 'other_module' for r in rows)
-          and sum(r['module'] == 'chatwoot' for r in rows) == 14, upgrade.stdout + upgrade.stderr)
+          and sum(r['module'] == 'chatwoot' for r in rows) == 15, upgrade.stdout + upgrade.stderr)
 
     config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
     config = json.loads(config.stdout or '{}')
-    check('module version is 2.0.4-insave.6', config.get('version') == '2.0.4-insave.6', config.get('version'))
+    check('module version is 2.0.4-insave.7', config.get('version') == '2.0.4-insave.7', config.get('version'))
+    check('setting "Ticket departments" exists', 'chatwoot_ticket_departments' in config.get('fields', {}),
+          list(config.get('fields', {})))
     check('shown as "Chatwoot by inSave", author without a third-party image',
           config.get('name') == 'Chatwoot by inSave' and '<img' not in config.get('author', '')
           and 'insavehosting/Chatwoot-WHMCS' in config.get('author', ''), (config.get('name'), config.get('author')))
@@ -353,6 +355,15 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 require getenv('CW_STAND_DIR') . '/bootstrap.php';
 cw_stand_boot('guest', getenv('CW_CHATWOOT_URL'));
+// settings a test changed for this browser session (/stand/setting)
+foreach ($_SESSION['cw_stand_settings'] ?? [] as $setting => $value) {
+    foreach (CwStand::$db['tbladdonmodules'] as &$row) {
+        if ($row['module'] === 'chatwoot' && $row['setting'] === $setting) {
+            $row['value'] = $value;
+        }
+    }
+    unset($row);
+}
 """
 
 
@@ -370,7 +381,8 @@ class AppStand:
             shutil.copy(f, module / f.name)
         (self.root / 'init.php').write_text(APP_INIT)
         self.origin = f'http://chat.example.test:{self.chat_port}'
-        env = dict(os.environ, CW_STAND_DIR=str(STAND), CW_CHATWOOT_URL=self.origin + '/')
+        self.log = self.root / 'stand-log.jsonl'
+        env = dict(os.environ, CW_STAND_DIR=str(STAND), CW_CHATWOOT_URL=self.origin + '/', CW_STAND_LOG=str(self.log))
         self.procs = [
             subprocess.Popen(['php', '-S', f'127.0.0.1:{self.whmcs_port}', '-t', str(self.root),
                               str(STAND / 'app_router.php')], env=env,
@@ -400,6 +412,7 @@ def app_checks(p):
     browser = p.chromium.launch(args=['--host-resolver-rules=MAP *.example.test 127.0.0.1, MAP evil.test 127.0.0.1'])
     try:
         _app_checks(stand, browser)
+        _ticket_checks(stand, browser)
     finally:
         browser.close()
         stand.stop()
@@ -570,6 +583,252 @@ def _app_checks(stand, browser):
         page.goto(f'http://billing.example.test:{stand.whmcs_port}/stand/admin?id={admin}')
         text = open_card(owner)
         check(name, expected in text and 'Acme' not in text, text[:200])
+    ctx.close()
+
+
+# --- Ticket from chat (action=ticket) -----------------------------------------
+
+def _ticket_checks(stand, browser):
+    def entries(kind):
+        if not stand.log.exists():
+            return []
+        return [e for e in map(json.loads, filter(None, stand.log.read_text().splitlines())) if e.get('kind') == kind]
+
+    ctx = browser.new_context()
+    page = ctx.new_page()
+    errors = []
+    page.on('pageerror', lambda e: errors.append(str(e)))
+    # the 400 and 403 answers the checks below ask for are logged by Chromium as "Failed to load resource"
+    page.on('console', lambda m: m.type == 'error' and 'frame-ancestors' not in m.text
+            and 'Failed to load resource' not in m.text and errors.append(m.text))
+    whmcs = f'http://billing.example.test:{stand.whmcs_port}'
+    card = page.frame_locator('#dashboard-app--frame-0-0')
+
+    def setting(key, value):
+        page.goto(f'{whmcs}/stand/setting?' + urllib.parse.urlencode({'k': key, 'v': value}))
+
+    def open_card(contact, conversation, theme='light'):
+        q = urllib.parse.urlencode({'app': stand.app, 'contact': json.dumps(contact), 'conversation': json.dumps(conversation),
+                                    'theme': theme})
+        page.goto(f'http://chat.example.test:{stand.chat_port}/?{q}')
+        body = card.locator('body')
+        text = ''
+        for _ in range(60):
+            try:
+                text = body.inner_text(timeout=500)
+            except Exception:
+                text = ''
+            if text and 'Waiting for the conversation' not in text and 'Loading' not in text:
+                break
+            time.sleep(0.1)
+        return text
+
+    def post(fields):
+        frame = page.query_selector('#dashboard-app--frame-0-0').content_frame()
+        return frame.evaluate("""f => { const b = new FormData();
+            for (const [k, v] of Object.entries(f)) b.append(k, v === '@token' ? window.CWAPP.token : v);
+            return fetch(location.pathname, {method: 'POST', body: b}).then(async r => [r.status, await r.text()]); }""", fields)
+
+    def create(account='100'):
+        form = card.locator(f'[data-ticket-form="{account}"]')
+        before = form.locator('[data-result]').inner_text()
+        form.locator('[data-create]').click()
+        for _ in range(100):
+            now = form.locator('[data-result]').inner_text()
+            if now and now != before and form.get_attribute('data-busy') is None:
+                return now
+            time.sleep(0.05)
+        return form.locator('[data-result]').inner_text()
+
+    def msg(i, kind, text, at, name='Olga Owner', private=False, files=None):
+        return {'id': i, 'message_type': kind, 'content': text, 'created_at': at, 'private': private,
+                'sender': {'name': name, 'available_name': name}, 'attachments': files or []}
+
+    base = 1762596000  # 2025-11-08 10:00 UTC
+    shot = {'id': 9, 'file_type': 'image', 'extension': 'png',
+            'data_url': 'https://chat.example.test/rails/active_storage/blobs/redirect/SIGNEDBLOB/screenshot%201.png'}
+    conv = {'id': 41, 'meta': {'team': {'id': 3, 'name': 'support'}}, 'allMessagesLoaded': True, 'messages': [
+        msg(4, 1, 'Looking into it now', base + 60, name='Agent Smith'),
+        msg(1, 0, 'My site is down since the morning, please help me today', base),
+        msg(2, 3, 'Give the team a way to reach you', base + 5, name='Bot'),
+        msg(3, 2, 'Conversation was assigned to Agent Smith', base + 10, name=''),
+        msg(5, 1, 'Internal: node disk is full', base + 70, name='Agent Smith', private=True),
+        msg(6, 0, '', base + 80, files=[shot]),
+    ]}
+    owner = {'id': 1, 'name': 'Olga Owner', 'email': 'owner@example.test', 'identifier': 'whmcs:u:10'}
+
+    page.goto(f'{whmcs}/stand/admin?id=1')
+    open_card(owner, conv)
+    check('ticket: owner, all messages loaded: "Open ticket" on the account',
+          card.locator('[data-open-ticket="100"]').count() == 1)
+    card.locator('[data-open-ticket="100"]').click()
+    form = card.locator('[data-ticket-form="100"]')
+    check('ticket form: department from the conversation team (support=3), subject from the first client message, Medium',
+          form.locator('[data-field="dept"]').input_value() == '3'
+          and form.locator('[data-field="topic"]').input_value() == 'My site is down since the morning, please help me today'[:60]
+          and form.locator('[data-field="priority"]').input_value() == 'Medium'
+          and form.locator('[data-field="prefix"]').inner_text() == 'Chat #41:',
+          [form.locator(f'[data-field="{f}"]').input_value() for f in ('dept', 'topic', 'priority')])
+    check('ticket form: counts the public messages (2 client, 1 agent)',
+          '3 messages will go into the ticket' in form.locator('[data-field="count"]').inner_text(),
+          form.locator('[data-field="count"]').inner_text())
+    answer = create()
+    made = entries('ticket')
+    call = made[0]['call'] if made else {}
+    check('1) ticket opened: OpenTicket for client 100 as user 10, department 3, Medium, by admin agent1, markdown off',
+          len(made) == 1 and call.get('clientid') == 100 and call.get('userid') == 10 and call.get('deptid') == 3
+          and call.get('priority') == 'Medium' and call.get('admin') is True and call.get('markdown') is False
+          and made[0].get('admin') == 'agent1'
+          and call.get('subject') == 'Chat #41: ' + 'My site is down since the morning, please help me today'[:60],
+          (len(made), {k: call.get(k) for k in ('clientid', 'userid', 'deptid', 'priority', 'admin', 'markdown', 'subject')}))
+    client_url = form.locator('[data-field="client-url"]').input_value() if form.locator('[data-field="client-url"]').count() else ''
+    check('1) result: ticket number, admin link and the client link with tid and c',
+          'Ticket #CW1001 opened' in answer
+          and form.locator('a[href="https://billing.example.test/staffpanel/supporttickets.php?action=view&id=901"]').count() == 1
+          and client_url == 'https://billing.example.test/viewticket.php?tid=CW1001&c=code1', (answer, client_url))
+    if os.environ.get('CW_STAND_SHOTS'):
+        for theme in ('light', 'dark'):
+            open_card(owner, conv, theme=theme)
+            card.locator('[data-open-ticket="100"]').click()
+            create()
+            page.set_viewport_size({'width': 700, 'height': 1600})
+            page.screenshot(path=os.path.join(os.environ['CW_STAND_SHOTS'], f'ticket-{theme}.png'), full_page=True)
+            page.set_viewport_size({'width': 1280, 'height': 1000})
+    activity = entries('activity')
+    check('1) activity log: one line, no transcript in it',
+          [a['message'] for a in activity] == ['Chatwoot card: ticket #CW1001 opened from chat #41'], activity)
+    form.locator('[data-result]').evaluate('n => { n.textContent = ""; }')
+    answer = create()
+    check('1) second press: link to the existing ticket, no second ticket',
+          'already has ticket #CW1001' in answer and len(entries('ticket')) == 1, (answer, len(entries('ticket'))))
+
+    body = call.get('message', '')
+    check('2) transcript: client and agent messages, attachment by name only',
+          body.startswith('Chat transcript #41, 2025-11-08 10:00 – 2025-11-08 10:01 UTC')
+          and '[2025-11-08 10:00 UTC] Olga Owner: My site is down since the morning, please help me today' in body
+          and '[2025-11-08 10:01 UTC] Agent Smith: Looking into it now' in body
+          and '(attachment screenshot 1.png is in the chat)' in body, body)
+    check('2) no private note, activity, template or attachment link in the ticket',
+          not any(s in body for s in ('Internal', 'Give the team', 'was assigned', 'SIGNEDBLOB', 'http')), body)
+
+    # 3) not every message loaded yet
+    partial = dict(conv, id=42, allMessagesLoaded=False)
+    open_card(owner, partial)
+    card.locator('[data-open-ticket="100"]').click()
+    form = card.locator('[data-ticket-form="100"]')
+    form.locator('[data-field="topic"]').fill('Edited by the agent')
+    check('3) allMessagesLoaded false: "Create ticket" disabled, asks to scroll up and press Refresh',
+          form.locator('[data-create]').is_disabled() and 'scroll the conversation up' in form.locator('[data-field="count"]').inner_text())
+    status, text = post({'token': '@token', 'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '100', 'dept': '3',
+                         'chat': '42', 'priority': 'Medium', 'loaded': '0', 'messages': json.dumps([])})
+    check('3) POST with loaded=0: 400, no ticket', status == 400 and 'incomplete' in text and len(entries('ticket')) == 1, (status, text))
+    page.evaluate('c => window.__setConversation(c)', dict(partial, allMessagesLoaded=True))
+    card.locator('button[aria-label="Refresh"]').click()
+    form.locator('[data-create]').wait_for(timeout=5000)
+    time.sleep(0.5)
+    check('3) after scrolling up and Refresh: form still open with what was typed, "Create ticket" enabled',
+          form.count() == 1 and not form.locator('[data-create]').is_disabled()
+          and form.locator('[data-field="topic"]').input_value() == 'Edited by the agent')
+
+    # 4) contact matched only by email
+    by_email = {'id': 3, 'name': 'Olga', 'email': 'owner@example.test'}
+    text = open_card(by_email, conv)
+    check('4) contact matched by email only: no ticket button, asks to merge the contact',
+          card.locator('[data-open-ticket]').count() == 0 and 'merge this contact' in text, text[:300])
+    status, text = post({'token': '@token', 'action': 'ticket', 'identifier': '', 'client': '100', 'dept': '3', 'chat': '41',
+                         'priority': 'Medium', 'loaded': '1', 'messages': json.dumps([])})
+    check('4) POST for that contact: 403', status == 403, (status, text))
+
+    # 5) invited user without the tickets permission; one with it
+    text = open_card({'id': 2, 'name': 'Ivan', 'email': 'invited@example.test', 'identifier': 'whmcs:u:11'}, conv)
+    check('5) invited user without "tickets": no button, says why',
+          card.locator('[data-open-ticket]').count() == 0 and 'may not open tickets' in text, text[:300])
+    status, text = post({'token': '@token', 'action': 'ticket', 'identifier': 'whmcs:u:11', 'client': '100', 'dept': '3',
+                         'chat': '41', 'priority': 'Medium', 'loaded': '1',
+                         'messages': json.dumps([{'id': 1, 'type': 0, 'private': False, 'time': base, 'name': 'Ivan', 'text': 'x', 'files': []}])})
+    check('5) forged POST for that user: 403, no ticket', status == 403 and len(entries('ticket')) == 1, (status, text))
+    open_card({'id': 8, 'name': 'Tina', 'email': 'tickets@example.test', 'identifier': 'whmcs:u:13'}, conv)
+    check('invited user with "tickets": the button is there', card.locator('[data-open-ticket="100"]').count() == 1)
+
+    # 6) no CSRF token, no admin session
+    status, text = post({'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '100', 'dept': '3', 'chat': '50',
+                         'priority': 'Medium', 'loaded': '1', 'messages': '[]'})
+    check('6) POST without the CSRF token: 403', status == 403 and 'token' in text, (status, text))
+    form_data = urllib.parse.urlencode({'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '100', 'dept': '3',
+                                        'chat': '50', 'loaded': '1', 'messages': '[]', 'token': 'x'}).encode()
+    try:
+        urllib.request.urlopen(stand.direct, data=form_data)
+        status = 200
+    except urllib.error.HTTPError as e:
+        status = e.code
+    check('6) POST without an admin session: 403, no ticket', status == 403 and len(entries('ticket')) == 1, status)
+
+    # 7) a department that is not in the setting
+    one = json.dumps([{'id': 1, 'type': 0, 'private': False, 'time': base, 'name': 'Olga', 'text': 'Hello', 'files': []}])
+    status, text = post({'token': '@token', 'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '100', 'dept': '5',
+                         'chat': '51', 'priority': 'Medium', 'loaded': '1', 'messages': one})
+    check('7) department not in the setting: 400, no ticket', status == 400 and 'department' in text and len(entries('ticket')) == 1,
+          (status, text))
+    status, text = post({'token': '@token', 'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '300', 'dept': '3',
+                         'chat': '51', 'priority': 'Medium', 'loaded': '1', 'messages': one})
+    check('a client the user has no link to: 403', status == 403, (status, text))
+
+    # 8) markup, entities, Cyrillic and emoji
+    tricky_text = '</script><b>bold</b> &amp; "quotes" Привіт, світе 👋🏽 \\ end'
+    open_card(owner, {'id': 43, 'meta': {}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, tricky_text, base)]})
+    card.locator('[data-open-ticket="100"]').click()
+    create()
+    made = entries('ticket')
+    check('8) </script>, &amp;, Cyrillic and emoji reach the ticket as typed; no team: department "*"=1; no JS errors',
+          len(made) == 2 and tricky_text in made[-1]['call']['message'] and made[-1]['call']['deptid'] == 1 and not errors,
+          (made[-1]['call'] if made else None, errors))
+
+    # 9) longer than 60 000 characters
+    long = [msg(i, i % 2, f'message {i:03d} ' + 'x' * 990, base + i * 60, name='Olga' if i % 2 == 0 else 'Agent') for i in range(80)]
+    # too long for a URL: the conversation arrives the way Chatwoot sends it, on the card's Refresh
+    big = {'id': 44, 'meta': {'team': {'name': 'billing'}}, 'allMessagesLoaded': True, 'messages': long}
+    open_card(owner, dict(big, messages=[]))
+    page.evaluate('c => window.__setConversation(c)', big)
+    card.locator('button[aria-label="Refresh"]').click()
+    card.locator('[data-open-ticket="100"]').wait_for(timeout=5000)
+    time.sleep(0.5)
+    card.locator('[data-open-ticket="100"]').click()
+    answer = create()
+    made = entries('ticket')
+    body = made[-1]['call']['message'] if made else ''
+    m = re.search(r'(\d+) earlier messages omitted', body)
+    check('9) over 60 000 characters: oldest messages cut, the header says how many, the newest kept',
+          len(made) == 3 and len(body) <= 60000 and m is not None and 'message 079' in body and 'message 000' not in body
+          and int(m.group(1)) == 80 - body.count(' UTC] '), (len(body), m and m.group(0)))
+
+    # merged tickets do not count as the conversation's ticket
+    open_card(owner, {'id': 8, 'meta': {}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, 'Again', base)]})
+    card.locator('[data-open-ticket="100"]').click()
+    answer = create()
+    check('a merged ticket with the same chat number is not the ticket of this chat', 'opened' in answer and len(entries('ticket')) == 4,
+          answer)
+
+    # admin without "Open New Ticket"
+    page.goto(f'{whmcs}/stand/admin?id=4')
+    open_card(owner, conv)
+    no_button = card.locator('[data-open-ticket]').count() == 0
+    status, text = post({'token': '@token', 'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '100', 'dept': '3',
+                         'chat': '60', 'priority': 'Medium', 'loaded': '1', 'messages': one})
+    check('admin without WHMCS "Open New Ticket": no button, POST 403', no_button and status == 403 and 'permission' in text,
+          (no_button, status, text))
+    page.goto(f'{whmcs}/stand/admin?id=1')
+
+    # 10) setting empty; a department that does not exist
+    setting('chatwoot_ticket_departments', '')
+    text = open_card(owner, conv)
+    check('10) "Ticket departments" empty: no button, no note', card.locator('[data-open-ticket]').count() == 0
+          and 'Ticket departments' not in text and 'Acme' in text, text[:200])
+    setting('chatwoot_ticket_departments', 'sales=99,support=3')
+    text = open_card(owner, conv)
+    check('a department that does not exist: ignored and named in the card',
+          'ignored sales=99' in text and card.locator('[data-open-ticket="100"]').count() == 1, text[:300])
+    setting('chatwoot_ticket_departments', 'sales=2,billing=4,support=3,*=1')
+    check('ticket checks: no JS errors in the card', not errors, errors)
     ctx.close()
 
 
