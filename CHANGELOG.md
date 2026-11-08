@@ -3,6 +3,8 @@
 ## 2.0.4-insave.8 — 2026-11-08
 
 - **Fix: ticket from chat on a real WHMCS.** WHMCS escapes every request variable (as `htmlspecialchars` does) before a module runs, which broke the JSON of the conversation: "Create ticket" answered "The conversation could not be read" and no ticket was opened. The card now sends the conversation and the subject base64-encoded; a subject with quotes or `<`, `&` arrives as typed. The test stand escapes requests the same way.
+- **Ticket text HTML-encoded, as WHMCS keeps its own input.** WHMCS prints ticket subjects and messages as stored; text from a chat is encoded before `OpenTicket`, so markup a client typed shows as text and cannot run in the admin area. The 60 000-byte limit is counted on the encoded text.
+- A subject that does not decode is refused instead of being replaced by the client's first message; the lookup decodes the email WHMCS escaped (`o'brien@…`); the request limit is 600 KB.
 
 ## 2.0.4-insave.7 — 2026-11-08
 
