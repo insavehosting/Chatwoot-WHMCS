@@ -1,4 +1,6 @@
-# Upgrading to 2.0.4-insave.7
+# Upgrading to 2.0.4-insave.8
+
+From 2.0.4-insave.7: replace `chatwoot.php` and `app.php` (md5 below) and open Setup → Addon Modules; the settings stay. 2.0.4-insave.7 could not open a ticket on a real WHMCS ("The conversation could not be read").
 
 From 2.0.4-insave.4, .5 or .6: replace `chatwoot.php` and `app.php` (md5 below; `hooks.php` is unchanged) and open WHMCS Admin → Setup → Addon Modules. To let agents open tickets from chats, then fill in **Ticket departments** and check the admin roles' **Open New Ticket** permission (README, "Ticket from chat"); left empty, the card stays as it was. From 2.0.4-insave.2 or .3: put the three files in place, open Setup → Addon Modules, then set up the WHMCS card (README, "WHMCS card in Chatwoot"): Access Control roles, the Dashboard App in Chatwoot. From 2.0.4: the whole page applies.
 
@@ -6,11 +8,11 @@ From 2.0.4-insave.4, .5 or .6: replace `chatwoot.php` and `app.php` (md5 below; 
 
 Three files go to the server, `modules/addons/chatwoot/chatwoot.php`, `hooks.php` and `app.php`, into the same path under the WHMCS root:
 
-| File | md5 of 2.0.4-insave.7 |
+| File | md5 of 2.0.4-insave.8 |
 |---|---|
-| `chatwoot.php` | `712d9206271bdff8e7a642d29335f346` |
+| `chatwoot.php` | `8e6ec27ad02b9732e1a0b08a9577efd8` |
 | `hooks.php` | `6af44aac22868c7b1aa068cb79a28846` |
-| `app.php` | `548f9d15c43b3d64e9a2298db28db943` |
+| `app.php` | `eadff30db062b983d581cd4abd558a9d` |
 
 What may be there now (keep a copy for a rollback):
 
@@ -19,6 +21,8 @@ What may be there now (keep a copy for a rollback):
 | `chatwoot.php` | 2.0.4 | `a3a63c891d6ff25c87869679a0496b75` |
 | `hooks.php` | 2.0.4 (upstream tag `2.0.4`) | `440870a44a9c4ab7ad3fcd6cfa07c861` |
 | `hooks.php` | 2.0.4 + the reset fix (branch `fix-guest-reset`, `17d5e6d`) | `fcd926d8d6e4570b91a7de63e838362b` |
+| `chatwoot.php` | 2.0.4-insave.7 | `712d9206271bdff8e7a642d29335f346` |
+| `app.php` | 2.0.4-insave.7 | `548f9d15c43b3d64e9a2298db28db943` |
 | `chatwoot.php` | 2.0.4-insave.6 | `ffe55a5dcd4defae97d892f674ba7846` |
 | `app.php` | 2.0.4-insave.6 | `9450aa5d08b55ec65efbc3e338d311b1` |
 | `chatwoot.php` | 2.0.4-insave.5 | `f85833a93b18a48bef0ffda61cfe5fdb` |
@@ -41,7 +45,7 @@ What may be there now (keep a copy for a rollback):
 
    ```bash
    md5sum modules/addons/chatwoot/*.php
-   # PASS: 712d9206… chatwoot.php, 6af44aac… hooks.php, 548f9d15… app.php
+   # PASS: 8e6ec27a… chatwoot.php, 6af44aac… hooks.php, eadff30d… app.php
    ```
 
 ## Order
@@ -60,7 +64,7 @@ What may be there now (keep a copy for a rollback):
 
    ```sql
    SELECT setting, LEFT(value, 20) FROM tbladdonmodules WHERE module = 'chatwoot' AND setting IN ('version', 'chatwoot_jscode')
-   -- PASS: one row, version = 2.0.4-insave.7; no chatwoot_jscode row
+   -- PASS: one row, version = 2.0.4-insave.8; no chatwoot_jscode row
    ```
 4. **Chatwoot server, right away:**
    - way A: clear the old identifiers, [migrate-identifiers.md](migrate-identifiers.md) A;
@@ -86,7 +90,7 @@ Use a private browser window with the console open.
 
 ## Rollback
 
-From 2.0.4-insave.7 to .6: put back `chatwoot.php` and `app.php` from the backup and open Setup → Addon Modules. The Ticket departments value stays in `tbladdonmodules` and is not read by .6; tickets opened from chats stay in WHMCS.
+From 2.0.4-insave.8 or .7 to .6: put back `chatwoot.php` and `app.php` from the backup and open Setup → Addon Modules. The Ticket departments value stays in `tbladdonmodules` and is not read by .6; tickets opened from chats stay in WHMCS.
 
 From any 2.0.4-insave version to 2.0.4:
 

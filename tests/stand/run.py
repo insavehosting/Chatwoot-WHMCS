@@ -75,7 +75,7 @@ def cli_checks():
 
     config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
     config = json.loads(config.stdout or '{}')
-    check('module version is 2.0.4-insave.7', config.get('version') == '2.0.4-insave.7', config.get('version'))
+    check('module version is 2.0.4-insave.8', config.get('version') == '2.0.4-insave.8', config.get('version'))
     check('setting "Ticket departments" exists', 'chatwoot_ticket_departments' in config.get('fields', {}),
           list(config.get('fields', {})))
     check('shown as "Chatwoot by inSave", author without a third-party image',
@@ -355,6 +355,11 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 require getenv('CW_STAND_DIR') . '/bootstrap.php';
 cw_stand_boot('guest', getenv('CW_CHATWOOT_URL'));
+// WHMCS escapes every request variable before any module runs (as
+// htmlspecialchars does); the card must survive that.
+array_walk_recursive($_POST, function (&$value) {
+    $value = htmlspecialchars((string) $value, ENT_QUOTES);
+});
 // settings a test changed for this browser session (/stand/setting)
 foreach ($_SESSION['cw_stand_settings'] ?? [] as $setting => $value) {
     foreach (CwStand::$db['tbladdonmodules'] as &$row) {
@@ -625,8 +630,10 @@ def _ticket_checks(stand, browser):
 
     def post(fields):
         frame = page.query_selector('#dashboard-app--frame-0-0').content_frame()
+        # messages and topic go base64-encoded, as the card sends them
         return frame.evaluate("""f => { const b = new FormData();
-            for (const [k, v] of Object.entries(f)) b.append(k, v === '@token' ? window.CWAPP.token : v);
+            const b64 = t => { const u = new TextEncoder().encode(t); let s = ''; for (const c of u) s += String.fromCharCode(c); return btoa(s); };
+            for (const [k, v] of Object.entries(f)) b.append(k, v === '@token' ? window.CWAPP.token : (k === 'messages' || k === 'topic') ? b64(v) : v);
             return fetch(location.pathname, {method: 'POST', body: b}).then(async r => [r.status, await r.text()]); }""", fields)
 
     def create(account='100'):
@@ -786,6 +793,14 @@ def _ticket_checks(stand, browser):
           and made[-1]['call']['deptid'] == 1 and not errors,
           (made[-1]['call'] if made else None, errors))
 
+    # WHMCS escapes request variables: a subject with quotes and markup still arrives as typed
+    open_card(owner, {'id': 47, 'meta': {}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, 'Hi', base)]})
+    card.locator('[data-open-ticket="100"]').click()
+    card.locator('[data-ticket-form="100"] [data-field="topic"]').fill('Say "hi" <b>now</b> & O\'Brien')
+    create()
+    check('subject with quotes, markup and & arrives as typed through WHMCS input escaping',
+          entries('ticket')[-1]['call']['subject'] == 'Chat #47: Say "hi" <b>now</b> & O\'Brien', entries('ticket')[-1]['call']['subject'])
+
     # 9) longer than 60 000 characters
     long = [msg(i, i % 2, f'message {i:03d} ' + 'x' * 990, base + i * 60, name='Olga' if i % 2 == 0 else 'Agent') for i in range(80)]
     # too long for a URL: the conversation arrives the way Chatwoot sends it, on the card's Refresh
@@ -801,7 +816,7 @@ def _ticket_checks(stand, browser):
     body = made[-1]['call']['message'] if made else ''
     m = re.search(r'(\d+) earlier messages omitted', body)
     check('9) over 60 000 bytes: oldest messages cut, the header says how many, the newest kept',
-          len(made) == 3 and len(body.encode()) <= 60000 and m is not None and 'message 079' in body and 'message 000' not in body
+          'opened' in answer and len(body.encode()) <= 60000 and m is not None and 'message 079' in body and 'message 000' not in body
           and int(m.group(1)) == 80 - body.count(' UTC] '), (len(body.encode()), m and m.group(0)))
 
     def via_refresh(conversation):

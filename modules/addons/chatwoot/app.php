@@ -442,6 +442,19 @@ function cwapp_bmp($text)
     return (string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', "\u{FFFD}", (string) $text);
 }
 
+# WHMCS escapes every request variable (as htmlspecialchars does) before a
+# module runs, which breaks JSON and changes quotes in a subject. The card
+# sends both base64-encoded, which that escaping leaves alone.
+function cwapp_post_base64($key, $max)
+{
+    $raw = (string) ($_POST[$key] ?? '');
+    if ($raw === '' || strlen($raw) > $max) {
+        return null;
+    }
+    $decoded = base64_decode($raw, true);
+    return $decoded === false ? null : $decoded;
+}
+
 # The subject every ticket from chat starts with; it is also how a second
 # ticket for the same conversation is recognised.
 function cwapp_ticket_prefix($chat)
@@ -494,8 +507,8 @@ function cwapp_ticket($admin, array $settings)
     if (($_POST['loaded'] ?? '') !== '1') {
         return [400, ['error' => 'incomplete']];
     }
-    $raw = (string) ($_POST['messages'] ?? '');
-    $messages = strlen($raw) <= CWAPP_POST_MAX ? json_decode($raw, true) : null;
+    $json = cwapp_post_base64('messages', intdiv(CWAPP_POST_MAX * 4, 3) + 4);
+    $messages = $json !== null ? json_decode($json, true) : null;
     if (!is_array($messages) || count($messages) > CWAPP_MESSAGES_MAX) {
         return [400, ['error' => 'messages']];
     }
@@ -512,7 +525,8 @@ function cwapp_ticket($admin, array $settings)
         return [200, ['duplicate' => true, 'ticket' => cwapp_ticket_links($existing->id, $existing->tid, $existing->c)]];
     }
 
-    $topic = trim(preg_replace('/\s+/u', ' ', cwapp_bmp($_POST['topic'] ?? '')));
+    $topic = (string) cwapp_post_base64('topic', 2000);
+    $topic = mb_check_encoding($topic, 'UTF-8') ? trim(preg_replace('/\s+/u', ' ', cwapp_bmp($topic))) : '';
     if ($topic === '') {
         $topic = trim(preg_replace('/\s+/u', ' ', (string) $transcript['first']));
     }
@@ -785,6 +799,12 @@ function cwapp_script()
     }
     return { messages: out, skipped: all.length - out.length };
   }
+  // base64 of the UTF-8 text: WHMCS escapes request variables, base64 survives it
+  function b64(text) {
+    var bytes = new TextEncoder().encode(text), out = '';
+    for (var i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(out);
+  }
   function firstClientText(messages) {
     for (var i = 0; i < messages.length; i++) {
       if (messages[i].type === 0 && messages[i].text.trim()) return messages[i].text.replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -897,12 +917,12 @@ function cwapp_script()
       body.append('identifier', contact.identifier || '');
       body.append('client', acc.id);
       body.append('dept', form.querySelector('[data-field="dept"]').value);
-      body.append('topic', topic.value);
+      body.append('topic', b64(topic.value));
       body.append('priority', priority.value);
       body.append('chat', conv.id);
       body.append('loaded', conv.allMessagesLoaded === true ? '1' : '0');
       var sending = messagesToSend();
-      body.append('messages', JSON.stringify(sending.messages));
+      body.append('messages', b64(JSON.stringify(sending.messages)));
       body.append('skipped', sending.skipped);
       fetch(location.pathname, { method: 'POST', body: body, credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
