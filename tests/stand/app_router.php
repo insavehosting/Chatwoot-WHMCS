@@ -6,6 +6,15 @@
 
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
+// /stand/setting?k=<setting>&v=<value>: overrides a module setting for this browser session.
+if ($path === '/stand/setting') {
+    session_start();
+    $_SESSION['cw_stand_settings'][(string) ($_GET['k'] ?? '')] = (string) ($_GET['v'] ?? '');
+    header('Content-Type: text/plain');
+    echo 'ok';
+    return true;
+}
+
 if ($path === '/stand/admin' || $path === '/stand/logout') {
     session_start();
     if ($path === '/stand/admin') {

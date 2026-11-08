@@ -16,12 +16,19 @@
   var contact = JSON.parse(params.get('contact') || 'null');
   var frame = document.getElementById('dashboard-app--frame-0-0');
   window.__fetchInfo = 0;
+  // The open conversation, as Chatwoot's store has it (currentChat): the
+  // display id as `id`, the team in meta.team, the loaded messages and
+  // allMessagesLoaded. Tests replace it with __setConversation, as when the
+  // agent scrolls up and Chatwoot loads older messages (no context is sent
+  // until the app asks for it).
+  var conversation = JSON.parse(params.get('conversation') || 'null') || { id: 7, messages: [] };
+  window.__setConversation = function (next) { conversation = next; };
 
   function send() {
     frame.contentWindow.postMessage(JSON.stringify({
       event: 'appContext',
       data: {
-        conversation: { id: 7, meta: { sender: contact } },
+        conversation: Object.assign({}, conversation, { meta: Object.assign({}, conversation.meta || {}, { sender: contact }) }),
         contact: contact,
         currentAgent: { id: 1, name: 'Agent', email: 'agent@example.test' },
         customAttributes: [],

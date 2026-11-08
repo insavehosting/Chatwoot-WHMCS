@@ -1,16 +1,16 @@
-# Upgrading to 2.0.4-insave.6
+# Upgrading to 2.0.4-insave.7
 
-From 2.0.4-insave.4 or .5: replace `chatwoot.php` and `app.php` (md5 below; `hooks.php` is unchanged) and open WHMCS Admin → Setup → Addon Modules. From 2.0.4-insave.2 or .3: put the three files in place, open Setup → Addon Modules, then set up the WHMCS card (README, "WHMCS card in Chatwoot"): Access Control roles, the Dashboard App in Chatwoot. From 2.0.4: the whole page applies.
+From 2.0.4-insave.4, .5 or .6: replace `chatwoot.php` and `app.php` (md5 below; `hooks.php` is unchanged) and open WHMCS Admin → Setup → Addon Modules. To let agents open tickets from chats, then fill in **Ticket departments** and check the admin roles' **Open New Ticket** permission (README, "Ticket from chat"); left empty, the card stays as it was. From 2.0.4-insave.2 or .3: put the three files in place, open Setup → Addon Modules, then set up the WHMCS card (README, "WHMCS card in Chatwoot"): Access Control roles, the Dashboard App in Chatwoot. From 2.0.4: the whole page applies.
 
 ## Files
 
 Three files go to the server, `modules/addons/chatwoot/chatwoot.php`, `hooks.php` and `app.php`, into the same path under the WHMCS root:
 
-| File | md5 of 2.0.4-insave.6 |
+| File | md5 of 2.0.4-insave.7 |
 |---|---|
-| `chatwoot.php` | `ffe55a5dcd4defae97d892f674ba7846` |
+| `chatwoot.php` | `712d9206271bdff8e7a642d29335f346` |
 | `hooks.php` | `6af44aac22868c7b1aa068cb79a28846` |
-| `app.php` | `9450aa5d08b55ec65efbc3e338d311b1` |
+| `app.php` | `548f9d15c43b3d64e9a2298db28db943` |
 
 What may be there now (keep a copy for a rollback):
 
@@ -19,6 +19,8 @@ What may be there now (keep a copy for a rollback):
 | `chatwoot.php` | 2.0.4 | `a3a63c891d6ff25c87869679a0496b75` |
 | `hooks.php` | 2.0.4 (upstream tag `2.0.4`) | `440870a44a9c4ab7ad3fcd6cfa07c861` |
 | `hooks.php` | 2.0.4 + the reset fix (branch `fix-guest-reset`, `17d5e6d`) | `fcd926d8d6e4570b91a7de63e838362b` |
+| `chatwoot.php` | 2.0.4-insave.6 | `ffe55a5dcd4defae97d892f674ba7846` |
+| `app.php` | 2.0.4-insave.6 | `9450aa5d08b55ec65efbc3e338d311b1` |
 | `chatwoot.php` | 2.0.4-insave.5 | `f85833a93b18a48bef0ffda61cfe5fdb` |
 | `app.php` | 2.0.4-insave.5 | `6dc16caf412d1cd621f3dc9a4c96f969` |
 | `chatwoot.php` | 2.0.4-insave.4 | `494a0c12c58f1c7f9f4ec8a66f718e13` |
@@ -39,7 +41,7 @@ What may be there now (keep a copy for a rollback):
 
    ```bash
    md5sum modules/addons/chatwoot/*.php
-   # PASS: f85833a9… chatwoot.php, 6af44aac… hooks.php, 6dc16caf… app.php
+   # PASS: 712d9206… chatwoot.php, 6af44aac… hooks.php, 548f9d15… app.php
    ```
 
 ## Order
@@ -58,7 +60,7 @@ What may be there now (keep a copy for a rollback):
 
    ```sql
    SELECT setting, LEFT(value, 20) FROM tbladdonmodules WHERE module = 'chatwoot' AND setting IN ('version', 'chatwoot_jscode')
-   -- PASS: one row, version = 2.0.4-insave.6; no chatwoot_jscode row
+   -- PASS: one row, version = 2.0.4-insave.7; no chatwoot_jscode row
    ```
 4. **Chatwoot server, right away:**
    - way A: clear the old identifiers, [migrate-identifiers.md](migrate-identifiers.md) A;
@@ -76,8 +78,17 @@ Use a private browser window with the console open.
 4. **Logout.** PASS: the next page starts a new chat session, the client's conversation is not in the window.
 5. **Invited user** (if there is a test one). PASS: their own contact `whmcs:u:<their ID>` in Chatwoot, no access to the owner's conversations.
 6. **Password reset.** Open a reset link from the email. PASS: `current_page` in Chatwoot is `<SystemURL>password/reset/redeem`, without the token.
+7. **Ticket from chat** (with Ticket departments set). In Chatwoot, open a test client's conversation (a signed-in user, contact `whmcs:u:<ID>`), scroll it up to the first message, press Refresh in the card, then Open ticket → Create ticket. PASS:
+   - a ticket under that client, from that user, in the department of the conversation's team, subject `Chat #<number>: …`;
+   - its message is the transcript: client and agent messages only, no private notes, attachments by name only;
+   - the client gets the "Support Ticket Opened by Admin" email, and the admin activity log has `Chatwoot card: ticket #… opened from chat #…`;
+   - pressing Create ticket again shows the same ticket instead of opening a second one.
 
 ## Rollback
+
+From 2.0.4-insave.7 to .6: put back `chatwoot.php` and `app.php` from the backup and open Setup → Addon Modules. The Ticket departments value stays in `tbladdonmodules` and is not read by .6; tickets opened from chats stay in WHMCS.
+
+From any 2.0.4-insave version to 2.0.4:
 
 1. Put back the files from `~/chatwoot-backup-<date>/` (2.0.4, or 2.0.4 + `fix-guest-reset`) and check their md5 against the table.
 2. Way B: map the contacts back with `REVERSE=1` ([migrate-identifiers.md](migrate-identifiers.md), B, Rollback). Way A: nothing to undo on the Chatwoot side. 2.0.4 identifies users by its own identifiers again and creates contacts for them.
