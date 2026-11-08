@@ -25,7 +25,7 @@ use WHMCS\Database\Capsule;
 # (and the script exits) before the functions further down. The ticket
 # message is a TEXT column in WHMCS: 65 535 bytes, not characters.
 const CWAPP_TRANSCRIPT_MAX = 60000;   # bytes of the ticket message
-const CWAPP_POST_MAX       = 2000000; # bytes of the posted messages
+const CWAPP_POST_MAX       = 600000;  # bytes of the posted messages (JSON); the card sends ~400 KB at most
 const CWAPP_MESSAGES_MAX   = 5000;
 const CWAPP_PRIORITIES     = ['Low', 'Medium', 'High'];
 
@@ -60,7 +60,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         echo cwapp_json($answer);
         exit;
     }
-    echo cwapp_json(cwapp_lookup((string) ($_POST['identifier'] ?? ''), (string) ($_POST['email'] ?? ''), $cwapp_admin, $cwapp_settings));
+    # WHMCS has escaped the request (as htmlspecialchars does): o'brien@… arrives as o&#039;brien@…
+    $cwapp_email = html_entity_decode((string) ($_POST['email'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    echo cwapp_json(cwapp_lookup((string) ($_POST['identifier'] ?? ''), $cwapp_email, $cwapp_admin, $cwapp_settings));
     exit;
 }
 
@@ -408,16 +410,20 @@ function cwapp_transcript($chat, array $messages, $skipped = 0)
     $from = gmdate('Y-m-d H:i', $rows[0]['time']);
     $to   = gmdate('Y-m-d H:i', $rows[count($rows) - 1]['time']);
 
-    # newest first until the budget is spent; the header is measured with the
-    # longest omitted count it can carry
+    # newest first until the budget is spent, measured as WHMCS will store the
+    # text (HTML-encoded: a quote takes 6 bytes); the header is measured with
+    # the longest omitted count it can carry
+    $stored = function ($text) {
+        return strlen(htmlspecialchars($text, ENT_QUOTES, 'UTF-8'));
+    };
     $header = function ($omitted) use ($chat, $from, $to) {
         return 'Chat transcript #' . $chat . ', ' . $from . ' – ' . $to . ' UTC'
             . ($omitted ? "\n" . $omitted . ' earlier message' . ($omitted === 1 ? '' : 's') . ' omitted to fit the ticket.' : '');
     };
-    $budget = CWAPP_TRANSCRIPT_MAX - strlen($header(count($rows) + $skipped)) - 2;
+    $budget = CWAPP_TRANSCRIPT_MAX - $stored($header(count($rows) + $skipped)) - 2;
     $kept = [];
     for ($i = count($rows) - 1; $i >= 0; $i--) {
-        $size = strlen($rows[$i]['line']) + 2;
+        $size = $stored($rows[$i]['line']) + 2;
         if ($size > $budget) {
             break;
         }
@@ -426,7 +432,12 @@ function cwapp_transcript($chat, array $messages, $skipped = 0)
     }
     if (!$kept) {
         # one message longer than the whole ticket: its end is cut
-        $kept[] = mb_strcut($rows[count($rows) - 1]['line'], 0, max(0, $budget));
+        $line = $rows[count($rows) - 1]['line'];
+        $cut  = max(0, $budget);
+        while ($cut > 0 && $stored(mb_strcut($line, 0, $cut)) > $budget) {
+            $cut = (int) floor($cut * $budget / $stored(mb_strcut($line, 0, $cut))) - 1;
+        }
+        $kept[] = mb_strcut($line, 0, max(0, $cut));
     }
     $omitted = count($rows) - count($kept) + $skipped;
     $text = $header($omitted) . "\n\n" . implode("\n\n", array_reverse($kept));
@@ -440,6 +451,19 @@ function cwapp_transcript($chat, array $messages, $skipped = 0)
 function cwapp_bmp($text)
 {
     return (string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', "\u{FFFD}", (string) $text);
+}
+
+# WHMCS escapes every request variable (as htmlspecialchars does) before a
+# module runs, which breaks JSON and changes quotes in a subject. The card
+# sends both base64-encoded, which that escaping leaves alone.
+function cwapp_post_base64($key, $max)
+{
+    $raw = (string) ($_POST[$key] ?? '');
+    if ($raw === '' || strlen($raw) > $max) {
+        return null;
+    }
+    $decoded = base64_decode($raw, true);
+    return $decoded === false ? null : $decoded;
 }
 
 # The subject every ticket from chat starts with; it is also how a second
@@ -494,8 +518,8 @@ function cwapp_ticket($admin, array $settings)
     if (($_POST['loaded'] ?? '') !== '1') {
         return [400, ['error' => 'incomplete']];
     }
-    $raw = (string) ($_POST['messages'] ?? '');
-    $messages = strlen($raw) <= CWAPP_POST_MAX ? json_decode($raw, true) : null;
+    $json = cwapp_post_base64('messages', intdiv(CWAPP_POST_MAX * 4, 3) + 4);
+    $messages = $json !== null ? json_decode($json, true) : null;
     if (!is_array($messages) || count($messages) > CWAPP_MESSAGES_MAX) {
         return [400, ['error' => 'messages']];
     }
@@ -512,18 +536,26 @@ function cwapp_ticket($admin, array $settings)
         return [200, ['duplicate' => true, 'ticket' => cwapp_ticket_links($existing->id, $existing->tid, $existing->c)]];
     }
 
-    $topic = trim(preg_replace('/\s+/u', ' ', cwapp_bmp($_POST['topic'] ?? '')));
+    # an empty topic means "use the client's first message"; one that does not decode is an error
+    $topic = cwapp_post_base64('topic', 2000);
+    if ($topic === null && (string) ($_POST['topic'] ?? '') !== '') {
+        return [400, ['error' => 'request']];
+    }
+    $topic = trim((string) preg_replace('/\s+/u', ' ', cwapp_bmp((string) $topic)));
     if ($topic === '') {
         $topic = trim(preg_replace('/\s+/u', ' ', (string) $transcript['first']));
     }
     $subject = mb_substr($prefix . ' ' . ($topic !== '' ? mb_substr($topic, 0, 60) : 'conversation'), 0, 200);
 
+    # WHMCS keeps ticket text HTML-encoded (its own forms arrive escaped) and
+    # prints it without escaping again; text from a chat is encoded the same
+    # way, or markup a client typed would run in the admin area.
     $result = localAPI('OpenTicket', [
         'clientid' => $clientId,
         'userid'   => (int) $user->id,
         'deptid'   => $deptId,
-        'subject'  => $subject,
-        'message'  => $transcript['text'],
+        'subject'  => htmlspecialchars($subject, ENT_QUOTES, 'UTF-8'),
+        'message'  => htmlspecialchars($transcript['text'], ENT_QUOTES, 'UTF-8'),
         'priority' => $priority,
         'admin'    => true,
         'markdown' => false,
@@ -785,6 +817,12 @@ function cwapp_script()
     }
     return { messages: out, skipped: all.length - out.length };
   }
+  // base64 of the UTF-8 text: WHMCS escapes request variables, base64 survives it
+  function b64(text) {
+    var bytes = new TextEncoder().encode(text), out = '';
+    for (var i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(out);
+  }
   function firstClientText(messages) {
     for (var i = 0; i < messages.length; i++) {
       if (messages[i].type === 0 && messages[i].text.trim()) return messages[i].text.replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -897,12 +935,12 @@ function cwapp_script()
       body.append('identifier', contact.identifier || '');
       body.append('client', acc.id);
       body.append('dept', form.querySelector('[data-field="dept"]').value);
-      body.append('topic', topic.value);
+      body.append('topic', b64(topic.value));
       body.append('priority', priority.value);
       body.append('chat', conv.id);
       body.append('loaded', conv.allMessagesLoaded === true ? '1' : '0');
       var sending = messagesToSend();
-      body.append('messages', JSON.stringify(sending.messages));
+      body.append('messages', b64(JSON.stringify(sending.messages)));
       body.append('skipped', sending.skipped);
       fetch(location.pathname, { method: 'POST', body: body, credentials: 'same-origin' })
         .then(function (r) { return r.json(); })

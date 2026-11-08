@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.4-insave.8 — 2026-11-08
+
+- **Fix: ticket from chat on a real WHMCS.** WHMCS escapes every request variable (as `htmlspecialchars` does) before a module runs, which broke the JSON of the conversation: "Create ticket" answered "The conversation could not be read" and no ticket was opened. The card now sends the conversation and the subject base64-encoded; a subject with quotes or `<`, `&` arrives as typed. The test stand escapes requests the same way.
+- **Ticket text HTML-encoded, as WHMCS keeps its own input.** WHMCS prints ticket subjects and messages as stored; text from a chat is encoded before `OpenTicket`, so markup a client typed shows as text and cannot run in the admin area. The 60 000-byte limit is counted on the encoded text.
+- A subject that does not decode is refused instead of being replaced by the client's first message; the lookup decodes the email WHMCS escaped (`o'brien@…`); the request limit is 600 KB.
+
 ## 2.0.4-insave.7 — 2026-11-08
 
 - **Ticket from chat.** An agent can open a WHMCS ticket from the WHMCS card, with the conversation's transcript, in the department mapped to the conversation's Chatwoot team (new setting "Ticket departments"; empty: off). The button shows only for a signed-in user (`whmcs:u:<id>`) who owns the account or has the "tickets" permission, and for an admin with WHMCS's "Open New Ticket" permission. The transcript is plain text with the public client and agent messages only, attachments by name; it is kept under 60 000 bytes (WHMCS's ticket message is a `TEXT` column) by leaving out the oldest messages, and emoji become `�` because utf8 (3-byte) ticket tables cut the text at them. "Create ticket" waits until Chatwoot has loaded the conversation from its first message. A second press shows the conversation's existing ticket. The result is the ticket number, an admin link and the client's link to copy into the chat. Every check is repeated on the server; nothing is written to Chatwoot. Details in the README, "Ticket from chat".

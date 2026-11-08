@@ -7,6 +7,7 @@ with a fake Chatwoot SDK. Prints PASS/FAIL per check, exits 1 on any FAIL.
 Needs php (8.x), ruby and Playwright for Python with Chromium.
 """
 import hashlib
+import html
 import hmac
 import json
 import os
@@ -75,7 +76,7 @@ def cli_checks():
 
     config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
     config = json.loads(config.stdout or '{}')
-    check('module version is 2.0.4-insave.7', config.get('version') == '2.0.4-insave.7', config.get('version'))
+    check('module version is 2.0.4-insave.8', config.get('version') == '2.0.4-insave.8', config.get('version'))
     check('setting "Ticket departments" exists', 'chatwoot_ticket_departments' in config.get('fields', {}),
           list(config.get('fields', {})))
     check('shown as "Chatwoot by inSave", author without a third-party image',
@@ -355,6 +356,12 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 }
 require getenv('CW_STAND_DIR') . '/bootstrap.php';
 cw_stand_boot('guest', getenv('CW_CHATWOOT_URL'));
+// WHMCS escapes every request variable before any module runs (as
+// htmlspecialchars does); the card must survive that. Only $_POST: the card
+// reads nothing else.
+array_walk_recursive($_POST, function (&$value) {
+    $value = htmlspecialchars((string) $value, ENT_QUOTES);
+});
 // settings a test changed for this browser session (/stand/setting)
 foreach ($_SESSION['cw_stand_settings'] ?? [] as $setting => $value) {
     foreach (CwStand::$db['tbladdonmodules'] as &$row) {
@@ -625,8 +632,18 @@ def _ticket_checks(stand, browser):
 
     def post(fields):
         frame = page.query_selector('#dashboard-app--frame-0-0').content_frame()
+        # messages and topic go base64-encoded, as the card sends them
         return frame.evaluate("""f => { const b = new FormData();
-            for (const [k, v] of Object.entries(f)) b.append(k, v === '@token' ? window.CWAPP.token : v);
+            const b64 = t => { const u = new TextEncoder().encode(t); let s = ''; for (const c of u) s += String.fromCharCode(c); return btoa(s); };
+            for (const [k, v] of Object.entries(f)) b.append(k, v === '@token' ? window.CWAPP.token : (k === 'messages' || k === 'topic') ? b64(v) : v);
+            return fetch(location.pathname, {method: 'POST', body: b}).then(async r => [r.status, await r.text()]); }""", fields)
+
+    def post_raw(fields):
+        # as post(), but topic goes as given (to send what the card never would)
+        frame = page.query_selector('#dashboard-app--frame-0-0').content_frame()
+        return frame.evaluate("""f => { const b = new FormData();
+            const b64 = t => { const u = new TextEncoder().encode(t); let s = ''; for (const c of u) s += String.fromCharCode(c); return btoa(s); };
+            for (const [k, v] of Object.entries(f)) b.append(k, v === '@token' ? window.CWAPP.token : k === 'messages' ? b64(v) : v);
             return fetch(location.pathname, {method: 'POST', body: b}).then(async r => [r.status, await r.text()]); }""", fields)
 
     def create(account='100'):
@@ -702,7 +719,8 @@ def _ticket_checks(stand, browser):
     check('1) second press: link to the existing ticket, no second ticket',
           'already has ticket #CW1001' in answer and len(entries('ticket')) == 1, (answer, len(entries('ticket'))))
 
-    body = call.get('message', '')
+    # WHMCS keeps ticket text HTML-encoded: what the card hands it is compared decoded
+    body = html.unescape(call.get('message', ''))
     check('2) transcript: client and agent messages, attachment by name only',
           body.startswith('Chat transcript #41, 2025-11-08 10:00 – 2025-11-08 10:01 UTC')
           and '[2025-11-08 10:00 UTC] Olga Owner: My site is down since the morning, please help me today' in body
@@ -782,9 +800,32 @@ def _ticket_checks(stand, browser):
     # emoji are 4-byte characters, which WHMCS's utf8 (3-byte) ticket tables cut the text at: they become U+FFFD
     check('8) </script>, &amp; and Cyrillic reach the ticket as typed, emoji as U+FFFD and the text after them kept; '
           'no team: department "*"=1; no JS errors',
-          len(made) == 2 and tricky_text.replace('👋🏽', '\ufffd\ufffd') in made[-1]['call']['message']
+          len(made) == 2 and tricky_text.replace('👋🏽', '\ufffd\ufffd') in html.unescape(made[-1]['call']['message'])
           and made[-1]['call']['deptid'] == 1 and not errors,
           (made[-1]['call'] if made else None, errors))
+
+    # WHMCS escapes request variables: a subject with quotes and markup still arrives as typed
+    open_card(owner, {'id': 47, 'meta': {}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, 'Hi', base)]})
+    card.locator('[data-open-ticket="100"]').click()
+    card.locator('[data-ticket-form="100"] [data-field="topic"]').fill('Say "hi" <b>now</b> & O\'Brien')
+    create()
+    subject = entries('ticket')[-1]['call']['subject']
+    check('subject with quotes, markup and & arrives as typed through WHMCS input escaping',
+          html.unescape(subject) == 'Chat #47: Say "hi" <b>now</b> & O\'Brien', subject)
+    check('markup from the chat reaches WHMCS HTML-encoded, as its own input (no stored XSS)',
+          '<b>' not in subject and '&lt;b&gt;' in subject and '<' not in made[-1]['call']['message'] if made else False,
+          (subject, made[-1]['call']['message'][:120] if made else None))
+    quotes = [msg(i, 0, '"' * 3000, base + i) for i in range(30)] + [msg(99, 0, '<' * 70000, base + 100)]
+    status, text = post({'token': '@token', 'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '100', 'dept': '3',
+                         'chat': '48', 'priority': 'Medium', 'loaded': '1',
+                         'messages': json.dumps([{'id': m['id'], 'type': 0, 'private': False, 'time': m['created_at'],
+                                                  'name': 'Olga', 'text': m['content'], 'files': []} for m in quotes])})
+    stored = entries('ticket')[-1]['call']['message']
+    check('a transcript of quotes and < still fits 60 000 bytes once HTML-encoded',
+          status == 200 and len(stored.encode()) <= 60000 and stored.startswith('Chat transcript #48'), (status, len(stored.encode())))
+    check('a topic that is not base64 is refused, not replaced',
+          post_raw({'token': '@token', 'action': 'ticket', 'identifier': 'whmcs:u:10', 'client': '100', 'dept': '3',
+                    'chat': '49', 'priority': 'Medium', 'loaded': '1', 'topic': '%%%', 'messages': one})[0] == 400)
 
     # 9) longer than 60 000 characters
     long = [msg(i, i % 2, f'message {i:03d} ' + 'x' * 990, base + i * 60, name='Olga' if i % 2 == 0 else 'Agent') for i in range(80)]
@@ -796,12 +837,14 @@ def _ticket_checks(stand, browser):
     card.locator('[data-open-ticket="100"]').wait_for(timeout=5000)
     time.sleep(0.5)
     card.locator('[data-open-ticket="100"]').click()
+    count = len(entries('ticket'))
     answer = create()
     made = entries('ticket')
-    body = made[-1]['call']['message'] if made else ''
+    stored = made[-1]['call']['message'] if made else ''
+    body = html.unescape(stored)
     m = re.search(r'(\d+) earlier messages omitted', body)
     check('9) over 60 000 bytes: oldest messages cut, the header says how many, the newest kept',
-          len(made) == 3 and len(body.encode()) <= 60000 and m is not None and 'message 079' in body and 'message 000' not in body
+          len(made) == count + 1 and 'opened' in answer and len(stored.encode()) <= 60000 and m is not None and 'message 079' in body and 'message 000' not in body
           and int(m.group(1)) == 80 - body.count(' UTC] '), (len(body.encode()), m and m.group(0)))
 
     def via_refresh(conversation):
