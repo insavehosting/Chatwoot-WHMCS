@@ -10,7 +10,7 @@ Three files go to the server, `modules/addons/chatwoot/chatwoot.php`, `hooks.php
 |---|---|
 | `chatwoot.php` | `712d9206271bdff8e7a642d29335f346` |
 | `hooks.php` | `6af44aac22868c7b1aa068cb79a28846` |
-| `app.php` | `54efba46d312e683068ac4b4b9ff21c2` |
+| `app.php` | `548f9d15c43b3d64e9a2298db28db943` |
 
 What may be there now (keep a copy for a rollback):
 
@@ -41,7 +41,7 @@ What may be there now (keep a copy for a rollback):
 
    ```bash
    md5sum modules/addons/chatwoot/*.php
-   # PASS: 712d9206… chatwoot.php, 6af44aac… hooks.php, 54efba46… app.php
+   # PASS: 712d9206… chatwoot.php, 6af44aac… hooks.php, 548f9d15… app.php
    ```
 
 ## Order

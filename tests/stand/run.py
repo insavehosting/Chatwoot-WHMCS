@@ -779,8 +779,11 @@ def _ticket_checks(stand, browser):
     card.locator('[data-open-ticket="100"]').click()
     create()
     made = entries('ticket')
-    check('8) </script>, &amp;, Cyrillic and emoji reach the ticket as typed; no team: department "*"=1; no JS errors',
-          len(made) == 2 and tricky_text in made[-1]['call']['message'] and made[-1]['call']['deptid'] == 1 and not errors,
+    # emoji are 4-byte characters, which WHMCS's utf8 (3-byte) ticket tables cut the text at: they become U+FFFD
+    check('8) </script>, &amp; and Cyrillic reach the ticket as typed, emoji as U+FFFD and the text after them kept; '
+          'no team: department "*"=1; no JS errors',
+          len(made) == 2 and tricky_text.replace('👋🏽', '\ufffd\ufffd') in made[-1]['call']['message']
+          and made[-1]['call']['deptid'] == 1 and not errors,
           (made[-1]['call'] if made else None, errors))
 
     # 9) longer than 60 000 characters
@@ -797,16 +800,65 @@ def _ticket_checks(stand, browser):
     made = entries('ticket')
     body = made[-1]['call']['message'] if made else ''
     m = re.search(r'(\d+) earlier messages omitted', body)
-    check('9) over 60 000 characters: oldest messages cut, the header says how many, the newest kept',
-          len(made) == 3 and len(body) <= 60000 and m is not None and 'message 079' in body and 'message 000' not in body
-          and int(m.group(1)) == 80 - body.count(' UTC] '), (len(body), m and m.group(0)))
+    check('9) over 60 000 bytes: oldest messages cut, the header says how many, the newest kept',
+          len(made) == 3 and len(body.encode()) <= 60000 and m is not None and 'message 079' in body and 'message 000' not in body
+          and int(m.group(1)) == 80 - body.count(' UTC] '), (len(body.encode()), m and m.group(0)))
+
+    def via_refresh(conversation):
+        open_card(owner, dict(conversation, messages=[]))
+        page.evaluate('c => window.__setConversation(c)', conversation)
+        card.locator('button[aria-label="Refresh"]').click()
+        card.locator('[data-open-ticket="100"]').wait_for(timeout=5000)
+        time.sleep(0.5)
+        card.locator('[data-open-ticket="100"]').click()
+
+    # Cyrillic: two bytes a letter, the ticket column holds 65 535 bytes
+    cyr = [msg(i, i % 2, f'повідомлення {i:03d} ' + 'ж' * 900, base + i * 60) for i in range(80)]
+    via_refresh({'id': 45, 'meta': {}, 'allMessagesLoaded': True, 'messages': cyr})
+    create()
+    body = entries('ticket')[-1]['call']['message']
+    m = re.search(r'(\d+) earlier messages omitted', body)
+    check('Cyrillic transcript: cut by bytes (≤ 60 000), header count right',
+          len(body.encode()) <= 60000 and 'повідомлення 079' in body and m is not None
+          and int(m.group(1)) == 80 - body.count(' UTC] '), (len(body.encode()), m and m.group(0)))
+
+    # more messages than the card sends: the newest go, the header counts all the others
+    many = [msg(i, 0, f'short {i:04d}', base + i) for i in range(2500)]
+    via_refresh({'id': 46, 'meta': {}, 'allMessagesLoaded': True, 'messages': many})
+    answer = create()
+    body = entries('ticket')[-1]['call']['message']
+    m = re.search(r'(\d+) earlier messages omitted', body)
+    check('2500 messages: the card sends the newest, the ticket is opened, the header counts every one left out',
+          'opened' in answer and 'short 2499' in body and m is not None and int(m.group(1)) + body.count(' UTC] ') == 2500,
+          (answer[:80], m and m.group(0), body.count(' UTC] ')))
+
+    # another conversation of the same contact: the open form starts over for it
+    a = {'id': 61, 'meta': {'team': {'name': 'support'}}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, 'First chat question', base)]}
+    b = {'id': 62, 'meta': {'team': {'name': 'billing'}}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, 'Second chat invoice', base)]}
+    open_card(owner, a)
+    card.locator('[data-open-ticket="100"]').click()
+    form = card.locator('[data-ticket-form="100"]')
+    form.locator('[data-field="topic"]').fill('typed for chat 61')
+    page.evaluate('c => { window.__setConversation(c); send(); }', b)
+    time.sleep(0.5)
+    check('switching to another conversation of the contact: the form is for the new one (prefix, subject, department)',
+          form.locator('[data-field="prefix"]').inner_text() == 'Chat #62:'
+          and form.locator('[data-field="topic"]').input_value() == 'Second chat invoice'
+          and form.locator('[data-field="dept"]').input_value() == '4',
+          [form.locator('[data-field="prefix"]').inner_text(), form.locator('[data-field="topic"]').input_value()])
+    before = page.evaluate('window.__fetchInfo')
+    form.evaluate('n => n.setAttribute("data-busy", "1")')
+    card.locator('button[aria-label="Refresh"]').click()
+    time.sleep(0.3)
+    check('Refresh is ignored while a ticket is being created', page.evaluate('window.__fetchInfo') == before)
 
     # merged tickets do not count as the conversation's ticket
     open_card(owner, {'id': 8, 'meta': {}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, 'Again', base)]})
     card.locator('[data-open-ticket="100"]').click()
+    count = len(entries('ticket'))
     answer = create()
-    check('a merged ticket with the same chat number is not the ticket of this chat', 'opened' in answer and len(entries('ticket')) == 4,
-          answer)
+    check('a merged ticket with the same chat number is not the ticket of this chat',
+          'opened' in answer and len(entries('ticket')) == count + 1, answer)
 
     # admin without "Open New Ticket"
     page.goto(f'{whmcs}/stand/admin?id=4')
@@ -823,6 +875,11 @@ def _ticket_checks(stand, browser):
     text = open_card(owner, conv)
     check('10) "Ticket departments" empty: no button, no note', card.locator('[data-open-ticket]').count() == 0
           and 'Ticket departments' not in text and 'Acme' in text, text[:200])
+    setting('chatwoot_ticket_departments', 'Підтримка=3,*=1')
+    open_card(owner, {'id': 70, 'meta': {'team': {'name': 'підтримка'}}, 'allMessagesLoaded': True, 'messages': [msg(1, 0, 'Hi', base)]})
+    card.locator('[data-open-ticket="100"]').click()
+    check('a Cyrillic team name in the setting matches the conversation team',
+          card.locator('[data-ticket-form="100"] [data-field="dept"]').input_value() == '3')
     setting('chatwoot_ticket_departments', 'sales=99,support=3')
     text = open_card(owner, conv)
     check('a department that does not exist: ignored and named in the card',

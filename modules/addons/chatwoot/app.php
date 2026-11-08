@@ -22,8 +22,9 @@ use WHMCS\Config\Setting;
 use WHMCS\Database\Capsule;
 
 # Ticket from chat: limits. Declared up here because the request is handled
-# (and the script exits) before the functions further down.
-const CWAPP_TRANSCRIPT_MAX = 60000;  # characters of the ticket message
+# (and the script exits) before the functions further down. The ticket
+# message is a TEXT column in WHMCS: 65 535 bytes, not characters.
+const CWAPP_TRANSCRIPT_MAX = 60000;   # bytes of the ticket message
 const CWAPP_POST_MAX       = 2000000; # bytes of the posted messages
 const CWAPP_MESSAGES_MAX   = 5000;
 const CWAPP_PRIORITIES     = ['Low', 'Medium', 'High'];
@@ -114,12 +115,8 @@ function cwapp_admin_url($path)
 # visitor) is matched by email and marked as not confirmed.
 function cwapp_lookup($identifier, $email, $admin = null, array $settings = [])
 {
-    $user  = null;
-    $match = 'none';
-    if (preg_match('/^whmcs:u:(\d+)$/', $identifier, $m)) {
-        $user  = Capsule::table('tblusers')->where('id', (int) $m[1])->first();
-        $match = $user ? 'identifier' : 'none';
-    }
+    $user  = cwapp_signed_user($identifier);
+    $match = $user ? 'identifier' : 'none';
     $email = trim($email);
     if (!$user && filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $user  = Capsule::table('tblusers')->where('email', $email)->first();
@@ -162,6 +159,15 @@ function cwapp_lookup($identifier, $email, $admin = null, array $settings = [])
         ] : null,
         'accounts' => $out,
     ];
+}
+
+# The WHMCS user behind a whmcs:u:<id> identifier, or null.
+function cwapp_signed_user($identifier)
+{
+    if (!preg_match('/^whmcs:u:(\d+)$/', (string) $identifier, $m)) {
+        return null;
+    }
+    return Capsule::table('tblusers')->where('id', (int) $m[1])->first() ?: null;
 }
 
 function cwapp_account($clientId, $isOwner)
@@ -290,7 +296,7 @@ function cwapp_departments(array $settings)
             $out['ignored'][] = $pair;
             continue;
         }
-        $out['map'][strtolower(trim($m[1]))] = (int) $m[2];
+        $out['map'][mb_strtolower(trim($m[1]))] = (int) $m[2];
     }
     foreach (array_unique(array_values($out['map'])) as $id) {
         $out['names'][$id] = (string) $existing[$id];
@@ -343,7 +349,7 @@ function cwapp_ticket_config($admin, array $settings)
         'teams'       => $departments['map'],
         'departments' => $list,
         'ignored'     => $departments['ignored'],
-        'max'         => CWAPP_TRANSCRIPT_MAX,
+        'priorities'  => CWAPP_PRIORITIES,
     ];
 }
 
@@ -351,8 +357,9 @@ function cwapp_ticket_config($admin, array $settings)
 # messages that are not private notes, oldest first. Activity (2) and
 # template (3) messages stay out. Attachments are named, never linked: the
 # links Chatwoot hands out are signed and open the file to anyone. When the
-# text is longer than the ticket allows, the oldest messages go.
-function cwapp_transcript($chat, array $messages)
+# text is longer than the ticket allows, the oldest messages go; $skipped is
+# how many the card already left out.
+function cwapp_transcript($chat, array $messages, $skipped = 0)
 {
     $rows = [];
     foreach ($messages as $message) {
@@ -365,11 +372,11 @@ function cwapp_transcript($chat, array $messages)
             continue;
         }
         $time = (int) $time;
-        $text = is_string($message['text'] ?? null) ? $message['text'] : '';
+        $text = is_string($message['text'] ?? null) ? cwapp_bmp($message['text']) : '';
         $files = [];
         foreach ((array) ($message['files'] ?? []) as $file) {
             if (is_string($file) && trim($file) !== '') {
-                $files[] = preg_replace('/[\x00-\x1F\x7F]/u', '', mb_substr(trim($file), 0, 200));
+                $files[] = preg_replace('/[\x00-\x1F\x7F]/u', '', cwapp_bmp(mb_substr(trim($file), 0, 200)));
             }
         }
         if (trim($text) === '' && !$files) {
@@ -377,7 +384,7 @@ function cwapp_transcript($chat, array $messages)
         }
         $name = is_string($message['name'] ?? null) && trim($message['name']) !== '' ? trim($message['name'])
             : ($message['type'] === 0 ? 'Client' : 'Agent');
-        $line = '[' . gmdate('Y-m-d H:i', $time) . ' UTC] ' . preg_replace('/\s+/u', ' ', mb_substr($name, 0, 100)) . ': '
+        $line = '[' . gmdate('Y-m-d H:i', $time) . ' UTC] ' . preg_replace('/\s+/u', ' ', cwapp_bmp(mb_substr($name, 0, 100))) . ': '
             . str_replace(["\r\n", "\r"], "\n", $text);
         foreach ($files as $file) {
             $line .= "\n" . '(attachment ' . $file . ' is in the chat)';
@@ -391,32 +398,48 @@ function cwapp_transcript($chat, array $messages)
         return null;
     }
 
-    $first   = null;
+    $first = null;
     foreach ($rows as $row) {
         if ($row['client'] && trim($row['text']) !== '') {
             $first = $row['text'];
             break;
         }
     }
-    $from    = gmdate('Y-m-d H:i', $rows[0]['time']);
-    $to      = gmdate('Y-m-d H:i', $rows[count($rows) - 1]['time']);
-    $omitted = 0;
-    $lines   = array_column($rows, 'line');
-    do {
-        $head = 'Chat transcript #' . $chat . ', ' . $from . ' – ' . $to . ' UTC'
+    $from = gmdate('Y-m-d H:i', $rows[0]['time']);
+    $to   = gmdate('Y-m-d H:i', $rows[count($rows) - 1]['time']);
+
+    # newest first until the budget is spent; the header is measured with the
+    # longest omitted count it can carry
+    $header = function ($omitted) use ($chat, $from, $to) {
+        return 'Chat transcript #' . $chat . ', ' . $from . ' – ' . $to . ' UTC'
             . ($omitted ? "\n" . $omitted . ' earlier message' . ($omitted === 1 ? '' : 's') . ' omitted to fit the ticket.' : '');
-        $text = $head . "\n\n" . implode("\n\n", $lines);
-        if (mb_strlen($text) <= CWAPP_TRANSCRIPT_MAX || count($lines) === 1) {
+    };
+    $budget = CWAPP_TRANSCRIPT_MAX - strlen($header(count($rows) + $skipped)) - 2;
+    $kept = [];
+    for ($i = count($rows) - 1; $i >= 0; $i--) {
+        $size = strlen($rows[$i]['line']) + 2;
+        if ($size > $budget) {
             break;
         }
-        array_shift($lines);
-        $omitted++;
-    } while (true);
-    if (mb_strlen($text) > CWAPP_TRANSCRIPT_MAX) {
-        $text = mb_substr($text, 0, CWAPP_TRANSCRIPT_MAX);
+        $budget -= $size;
+        $kept[] = $rows[$i]['line'];
     }
+    if (!$kept) {
+        # one message longer than the whole ticket: its end is cut
+        $kept[] = mb_strcut($rows[count($rows) - 1]['line'], 0, max(0, $budget));
+    }
+    $omitted = count($rows) - count($kept) + $skipped;
+    $text = $header($omitted) . "\n\n" . implode("\n\n", array_reverse($kept));
 
-    return ['text' => $text, 'count' => count($lines), 'omitted' => $omitted, 'first' => $first];
+    return ['text' => $text, 'count' => count($kept), 'omitted' => $omitted, 'first' => $first];
+}
+
+# WHMCS's ticket tables are often utf8 (3 bytes), where a 4-byte character
+# (emoji) cuts the rest of the text off without an error: such characters
+# become U+FFFD.
+function cwapp_bmp($text)
+{
+    return (string) preg_replace('/[\x{10000}-\x{10FFFF}]/u', "\u{FFFD}", (string) $text);
 }
 
 # The subject every ticket from chat starts with; it is also how a second
@@ -450,12 +473,12 @@ function cwapp_ticket($admin, array $settings)
     if (!cwapp_admin_may_open_tickets($admin)) {
         return [403, ['error' => 'permission']];
     }
-    if (!preg_match('/^whmcs:u:(\d+)$/', (string) ($_POST['identifier'] ?? ''), $m)) {
+    $user = cwapp_signed_user($_POST['identifier'] ?? '');
+    if (!$user) {
         return [403, ['error' => 'identity']];
     }
-    $user = Capsule::table('tblusers')->where('id', (int) $m[1])->first();
     $clientId = (int) ($_POST['client'] ?? 0);
-    $link = $user ? Capsule::table('tblusers_clients')->where('auth_user_id', (int) $user->id)->where('client_id', $clientId)->first() : null;
+    $link = Capsule::table('tblusers_clients')->where('auth_user_id', (int) $user->id)->where('client_id', $clientId)->first();
     if (!$link || !cwapp_user_can_ticket($link)) {
         return [403, ['error' => 'user']];
     }
@@ -476,7 +499,8 @@ function cwapp_ticket($admin, array $settings)
     if (!is_array($messages) || count($messages) > CWAPP_MESSAGES_MAX) {
         return [400, ['error' => 'messages']];
     }
-    $transcript = cwapp_transcript($chat, $messages);
+    $skipped = max(0, min(1000000, (int) ($_POST['skipped'] ?? 0)));
+    $transcript = cwapp_transcript($chat, $messages, $skipped);
     if (!$transcript) {
         return [400, ['error' => 'empty']];
     }
@@ -488,7 +512,7 @@ function cwapp_ticket($admin, array $settings)
         return [200, ['duplicate' => true, 'ticket' => cwapp_ticket_links($existing->id, $existing->tid, $existing->c)]];
     }
 
-    $topic = trim(preg_replace('/\s+/u', ' ', (string) ($_POST['topic'] ?? '')));
+    $topic = trim(preg_replace('/\s+/u', ' ', cwapp_bmp($_POST['topic'] ?? '')));
     if ($topic === '') {
         $topic = trim(preg_replace('/\s+/u', ' ', (string) $transcript['first']));
     }
@@ -670,7 +694,10 @@ function cwapp_script()
   var cfg = window.CWAPP || {}, root = document.documentElement, card = document.getElementById('card'), last = null;
   // The open conversation as Chatwoot last sent it: kept up to date on every
   // appContext, so the ticket form sees messages loaded after the card was.
-  var conv = null, shown = null, reopen = {}, refreshing = false;
+  var conv = null, reopen = {}, refreshing = false;
+  // What the card sends at most: the newest messages; the server is told how
+  // many older ones it left out, and trims to the ticket size itself.
+  var SEND_MAX = 2000, SEND_BYTES = 400000;
   var TONES = {
     Active: 'green', Pending: 'blue', Suspended: 'amber', Fraud: 'red', Inactive: 'gray', Closed: 'red',
     Open: 'blue', 'Customer-Reply': 'amber', Answered: 'green', 'In Progress': 'blue'
@@ -746,6 +773,18 @@ function cwapp_script()
       return typeof m.time === 'number' && m.time > 0 && (m.text.trim() !== '' || m.files.length);
     }).sort(function (a, b) { return a.time - b.time || a.id - b.id; });
   }
+  // The newest public messages that fit what the card sends, and how many
+  // older ones were left out.
+  function messagesToSend() {
+    var all = publicMessages(), out = [], bytes = 0;
+    for (var i = all.length - 1; i >= 0 && out.length < SEND_MAX; i--) {
+      var size = new Blob([all[i].text + all[i].name + all[i].files.join('')]).size + 120;
+      if (out.length && bytes + size > SEND_BYTES) break;
+      bytes += size;
+      out.unshift(all[i]);
+    }
+    return { messages: out, skipped: all.length - out.length };
+  }
   function firstClientText(messages) {
     for (var i = 0; i < messages.length; i++) {
       if (messages[i].type === 0 && messages[i].text.trim()) return messages[i].text.replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -782,9 +821,16 @@ function cwapp_script()
     var prefix = form.querySelector('[data-field="prefix"]');
     if (prefix) prefix.textContent = 'Chat #' + (conv ? conv.id : '?') + ':';
   }
+  // Another conversation of the same contact: an open form starts over for it.
   function refreshForms() {
     if (!card) return;
-    Array.prototype.forEach.call(card.querySelectorAll('[data-ticket-form]'), refreshForm);
+    Array.prototype.forEach.call(card.querySelectorAll('[data-ticket-form]'), function (form) {
+      if (conv && form.getAttribute('data-chat') !== String(conv.id) && form.getAttribute('data-busy') !== '1' && form.rebuild) {
+        form.replaceWith(form.rebuild());
+      } else {
+        refreshForm(form);
+      }
+    });
   }
   function result(form, answer) {
     var box = form.querySelector('[data-result]');
@@ -794,6 +840,7 @@ function cwapp_script()
         user: 'This user may not open tickets for the account.', identity: 'The contact is not a signed-in WHMCS user.',
         permission: 'Your admin role may not open tickets.', department: 'That department is not in the setting.',
         incomplete: 'Not every message is loaded: scroll up and press Refresh.', empty: 'No public messages to put into a ticket.',
+        messages: 'The conversation could not be read; press Refresh and try again.', request: 'The request was not valid.',
         whmcs: 'WHMCS refused the ticket' + (answer.message ? ': ' + answer.message : '.'), login: 'The WHMCS admin session has ended.'
       };
       add(box, el('p', reasons[answer.error] || 'Request refused (' + answer.error + ').', 'note'));
@@ -822,13 +869,15 @@ function cwapp_script()
   function ticketForm(acc, contact, ticket) {
     var form = el('div', null, 'ticket');
     form.setAttribute('data-ticket-form', acc.id);
+    form.setAttribute('data-chat', conv ? String(conv.id) : '');
+    form.rebuild = function () { return ticketForm(acc, contact, ticket); };
     var team = conv && conv.meta && conv.meta.team && conv.meta.team.name ? String(conv.meta.team.name).toLowerCase() : '';
     var dept = ticket.teams[team] || ticket.teams['*'] || (ticket.departments[0] && ticket.departments[0].id);
     var topic = el('input');
     topic.setAttribute('data-field', 'topic');
     topic.maxLength = 60;
     topic.value = firstClientText(publicMessages());
-    var priority = select('priority', ['Low', 'Medium', 'High'].map(function (p) { return { id: p, name: p }; }), 'Medium');
+    var priority = select('priority', (ticket.priorities || ['Medium']).map(function (p) { return { id: p, name: p }; }), 'Medium');
     var prefix = el('span');
     prefix.setAttribute('data-field', 'prefix');
     var info = el('p', null, 'sub');
@@ -852,7 +901,9 @@ function cwapp_script()
       body.append('priority', priority.value);
       body.append('chat', conv.id);
       body.append('loaded', conv.allMessagesLoaded === true ? '1' : '0');
-      body.append('messages', JSON.stringify(publicMessages()));
+      var sending = messagesToSend();
+      body.append('messages', JSON.stringify(sending.messages));
+      body.append('skipped', sending.skipped);
       fetch(location.pathname, { method: 'POST', body: body, credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (answer) { result(form, answer); })
@@ -874,6 +925,7 @@ function cwapp_script()
     if (!card) return;
     Array.prototype.forEach.call(card.querySelectorAll('[data-ticket-form]'), function (form) {
       reopen[form.getAttribute('data-ticket-form')] = {
+        chat: form.getAttribute('data-chat'),
         dept: form.querySelector('[data-field="dept"]').value,
         topic: form.querySelector('[data-field="topic"]').value,
         priority: form.querySelector('[data-field="priority"]').value
@@ -899,7 +951,7 @@ function cwapp_script()
     };
     add(box, wrap);
     var kept = reopen[String(acc.id)];
-    if (kept) {
+    if (kept && conv && kept.chat === String(conv.id)) {
       open.onclick();
       var form = box.querySelector('[data-ticket-form]');
       ['dept', 'topic', 'priority'].forEach(function (f) {
@@ -911,14 +963,17 @@ function cwapp_script()
 
   function render(data, contact) {
     card.textContent = '';
-    shown = data;
     var who = el('div', null, 'who');
     var refresh = el('button', null, 'icon');
     refresh.type = 'button';
     refresh.title = 'Refresh';
     refresh.setAttribute('aria-label', 'Refresh');
     refresh.innerHTML = REFRESH;
-    refresh.onclick = function () { last = null; refreshing = true; requestContext(); };
+    // not while a ticket is being created: the answer would land in a form that is gone
+    refresh.onclick = function () {
+      if (card.querySelector('[data-ticket-form][data-busy]')) return;
+      last = null; refreshing = true; requestContext();
+    };
     if (data.match === 'identifier') who.appendChild(pill('Signed-in user', 'iris'));
     if (data.match === 'email') who.appendChild(pill('Matched by email, not confirmed', 'amber'));
     if (data.match) who.setAttribute('data-match', data.match);
