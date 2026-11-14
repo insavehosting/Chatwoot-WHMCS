@@ -2,7 +2,7 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot by inSave (v2.0.4-insave.8): Chatwoot live chat for the      *
+// * Chatwoot by inSave (v3.0.0): Chatwoot live chat for the               *
 //   WHMCS client area. Requires WHMCS 8 or later.                         *
 // * Maintained by inSave Hosting OÜ:                                      *
 //   https://github.com/insavehosting/Chatwoot-WHMCS                       *
@@ -26,8 +26,8 @@ function chatwoot_config()
 {
     return [
         "name"        => "Chatwoot by inSave",
-        "description" => "Chatwoot live chat for the WHMCS client area, with signed user identity and page context. Maintained by inSave Hosting; based on <a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'>Chatwoot-WHMCS by WevrLabs</a> (MIT).",
-        "version"     => "2.0.4-insave.8",
+        "description" => "Chatwoot live chat for the WHMCS client area with signed user identity, a WHMCS client card inside Chatwoot and tickets from chats. Maintained by inSave Hosting; based on <a href='https://github.com/WevrLabs-Group/Chatwoot-WHMCS' target='_blank'>Chatwoot-WHMCS by WevrLabs</a> (MIT).",
+        "version"     => "3.0.0",
         "author"      => "<a href='https://github.com/insavehosting/Chatwoot-WHMCS' target='_blank'>inSave Hosting</a>",
         "fields"      => [
             'chatwoot_enable'           => [
@@ -43,7 +43,7 @@ function chatwoot_config()
                 'Rows'         => '',
                 'Cols'         => '',
                 'Default'      => '',
-                'Description'  => 'Enter Chatwoot URL. Example: https://www.chatwoot.com',
+                'Description'  => 'The address of your Chatwoot, for example https://chat.example.com',
             ],
             'chatwoot_app_origin'       => [
                 'FriendlyName' => 'Dashboard App Origin',
@@ -65,14 +65,14 @@ function chatwoot_config()
                 'Rows'         => '',
                 'Cols'         => '',
                 'Default'      => '',
-                'Description'  => 'Enter your website widget Token in this field. You can obtain it from your Chatwoot Dashboard > Inboxes > Website > Settings.<br /> For help, visit <a href="https://www.chatwoot.com/hc/user-guide/articles/1677669989-how-to-install-live-chat-on-a-word_press-website" target="_blank">Chatwoot Docs</a>',
+                'Description'  => 'The <code>websiteToken</code> of your Website inbox: Chatwoot &rarr; Settings &rarr; Inboxes &rarr; the inbox &rarr; Configuration, in the widget script.',
             ],
             'chatwoot_verhash'          => [
                 'FriendlyName' => 'Secret Key (Required)',
                 'Type'         => 'text',
                 'Size'         => '',
                 'Default'      => '',
-                'Description'  => 'To make sure the conversations between the customers and the support agents are private and to disallow impersonation, you can setup identity validation in Chatwoot. <br />The key used to generate HMAC hash is unique for each webwidget and you can copy it from Inboxes -> Widget Settings -> Configuration -> Identity Validation -> Copy the token shown there<br />To learn more about this, visit <a href="https://www.chatwoot.com/hc/user-guide/articles/1677587479-how-to-enable-identity-validation-in-chatwoot" target="_blank">Chatwoot Docs</a>',
+                'Description'  => 'The Identity Validation key of the same inbox: Chatwoot &rarr; Settings &rarr; Inboxes &rarr; the inbox &rarr; Configuration &rarr; Identity Validation. It signs the client&#39;s identity so nobody can pose as another client. Turn on <strong>Enforce user identity validation</strong> there as well. <a href="https://www.chatwoot.com/hc/user-guide/articles/1677587479-how-to-enable-identity-validation-in-chatwoot" target="_blank">Chatwoot Docs</a>',
             ],
             'chatwoot_position'         => [
                 'FriendlyName' => 'Chat Box Position',
@@ -86,28 +86,28 @@ function chatwoot_config()
                 'Type'         => 'radio',
                 'Options'      => 'Standard,Expanded Bubble',
                 'Default'      => 'Standard',
-                'Description'  => 'Set the chat box bubble design. Read more at <a href="https://www.chatwoot.com/hc/user-guide/articles/1677587234-how-to-send-additional-user-information-to-chatwoot-using-sdk" target="_blank">Chatwoot Docs</a>.',
+                'Description'  => 'A round bubble (Standard) or a bubble with text (Expanded Bubble).',
             ],
             'chatwoot_launcherTitle'    => [
                 'FriendlyName' => 'Bubble Launcher Title',
                 'Type'         => 'text',
                 'Size'         => '',
                 'Default'      => '',
-                'Description'  => 'Set the chat box bubble design. Read more at <a href="https://www.chatwoot.com/hc/user-guide/articles/1677587234-how-to-send-additional-user-information-to-chatwoot-using-sdk" target="_blank">Chatwoot Docs</a>.',
+                'Description'  => 'The text on the expanded bubble, for example: Chat with us.',
             ],
             'chatwoot_dark'             => [
                 'FriendlyName' => 'Enable Dark Mode on Widget',
                 'Type'         => 'yesno',
                 'Size'         => '55',
                 'Default'      => 'no',
-                'Description'  => 'Check to activate dark mode on the chat box.',
+                'Description'  => 'Tick to let the chat box follow the visitor&#39;s light or dark system theme. Unticked: always light.',
             ],
             'chatwoot_lang'             => [
                 'FriendlyName' => 'Dynamic Language',
                 'Type'         => 'yesno',
                 'Size'         => '55',
                 'Default'      => 'no',
-                'Description'  => 'check this box to set the chat box language according to current WHMCS clientarea langauge preference.',
+                'Description'  => 'Tick to show the chat box in the language of the client area, when Chatwoot has that language.',
             ],
             'chatwoot_setlabel'         => [
                 'FriendlyName' => 'Default non-logged In Conversation Label',

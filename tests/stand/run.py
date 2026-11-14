@@ -76,7 +76,7 @@ def cli_checks():
 
     config = sh('php', '-r', 'define("WHMCS", 1); require "modules/addons/chatwoot/chatwoot.php"; echo json_encode(chatwoot_config());')
     config = json.loads(config.stdout or '{}')
-    check('module version is 2.0.4-insave.8', config.get('version') == '2.0.4-insave.8', config.get('version'))
+    check('module version is 3.0.0', config.get('version') == '3.0.0', config.get('version'))
     check('setting "Ticket departments" exists', 'chatwoot_ticket_departments' in config.get('fields', {}),
           list(config.get('fields', {})))
     check('shown as "Chatwoot by inSave", author without a third-party image',
