@@ -79,8 +79,8 @@ def cli_checks():
     check('module version is 3.0.0', config.get('version') == '3.0.0', config.get('version'))
     check('setting "Ticket departments" exists', 'chatwoot_ticket_departments' in config.get('fields', {}),
           list(config.get('fields', {})))
-    check('shown as "Chatwoot by inSave", author without a third-party image',
-          config.get('name') == 'Chatwoot by inSave' and '<img' not in config.get('author', '')
+    check('shown as "Chatwoot by inSave Hosting", author without a third-party image',
+          config.get('name') == 'Chatwoot by inSave Hosting' and '<img' not in config.get('author', '')
           and 'insavehosting/Chatwoot-WHMCS' in config.get('author', ''), (config.get('name'), config.get('author')))
 
     export = sh('php', 'tools/export-identifier-map.php', 'tests/stand/fake-whmcs')

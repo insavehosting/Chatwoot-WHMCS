@@ -1,4 +1,4 @@
-# Chatwoot by inSave
+# Chatwoot by inSave Hosting
 
 A free WHMCS addon that connects [Chatwoot](https://www.chatwoot.com) live chat to your billing:
 
@@ -61,7 +61,7 @@ The card follows Chatwoot's light and dark theme ([dark screenshot](docs/images/
 
 1. Download `chatwoot-by-insave.zip` from the [latest release](https://github.com/insavehosting/Chatwoot-WHMCS/releases/latest).
 2. Unzip it and upload the `modules` folder into the WHMCS root folder. The files land in `<WHMCS>/modules/addons/chatwoot/`.
-3. In the WHMCS admin area open **Addon Modules** (System Settings → Addon Modules; in older versions Setup → Addon Modules), find **Chatwoot by inSave**, press **Activate**, then **Configure**.
+3. In the WHMCS admin area open **Addon Modules** (System Settings → Addon Modules; in older versions Setup → Addon Modules), find **Chatwoot by inSave Hosting**, press **Activate**, then **Configure**.
 4. In Chatwoot open **Settings → Inboxes** and pick your Website inbox (or add one: **Add Inbox → Website**). On its **Configuration** tab:
    - copy the `websiteToken` value from the widget script;
    - under **Identity Validation** copy the secret key and turn on **Enforce user identity validation**.
@@ -96,7 +96,7 @@ The card is a Chatwoot "Dashboard App": a tab next to a conversation that shows 
 
 **Set it up**
 
-1. WHMCS → Addon Modules → Chatwoot by inSave → Configure → **Access Control**: tick the admin roles of your agents.
+1. WHMCS → Addon Modules → Chatwoot by inSave Hosting → Configure → **Access Control**: tick the admin roles of your agents.
 2. Chatwoot → **Settings → Integrations → Dashboard apps → Add a new dashboard app**. Name: for example `WHMCS`. URL: your WHMCS address followed by `modules/addons/chatwoot/app.php`, for example `https://billing.example.com/modules/addons/chatwoot/app.php`.
 3. Open any conversation and switch to the new tab.
 
@@ -141,7 +141,7 @@ Limits and the checks behind the button: [docs/whmcs-card.md](docs/whmcs-card.md
 
 ## Upgrading
 
-- **From an earlier Chatwoot by inSave (2.0.4-insave.x):** replace the files in `modules/addons/chatwoot/` with the ones from the new zip and open the Addon Modules page once. Settings are kept.
+- **From an earlier version of this module (2.0.4-insave.x, listed as "Chatwoot by inSave"):** replace the files in `modules/addons/chatwoot/` with the ones from the new zip and open the Addon Modules page once. Settings are kept.
 - **From Chatwoot-WHMCS 2.0.4 by WevrLabs:** the module keeps its system name, so your settings carry over. The way contacts are identified in Chatwoot changes, so read [docs/deploy.md](docs/deploy.md) before you upload the files.
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
@@ -182,7 +182,7 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Privacy
 
-For a logged-in client the widget sends to your Chatwoot: name, email, company, phone, city, state, postcode, country, language, the WHMCS user and client IDs, the number of active tickets, unpaid and overdue invoices, and the address of the current page without its query string. For a visitor it sends only the page address. Nothing goes to inSave or to any third party, and the module makes no outside requests of its own.
+For a logged-in client the widget sends to your Chatwoot: name, email, company, phone, city, state, postcode, country, language, the WHMCS user and client IDs, the number of active tickets, unpaid and overdue invoices, and the address of the current page without its query string. For a visitor it sends only the page address. Nothing goes to inSave Hosting or to any third party, and the module makes no outside requests of its own.
 
 The full list, field by field: [docs/data-sent.md](docs/data-sent.md). Mention the chat in your own privacy policy if you have not yet.
 

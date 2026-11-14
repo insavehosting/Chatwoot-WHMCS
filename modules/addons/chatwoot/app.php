@@ -2,7 +2,8 @@
 
 /***************************************************************************
 // *                                                                       *
-// * Chatwoot by inSave: the WHMCS card for Chatwoot Dashboard Apps.       *
+// * Chatwoot by inSave Hosting: the WHMCS card for Chatwoot Dashboard     *
+//   Apps.                                                                *
 // * Chatwoot loads this page in an iframe next to a conversation and      *
 //   posts the conversation context to it; the page shows the WHMCS        *
 //   client behind the contact. With "Ticket departments" set, an agent    *
@@ -594,14 +595,14 @@ function cwapp_page($admin, $origin)
 {
     $login = htmlspecialchars(cwapp_admin_url(''), ENT_QUOTES, 'UTF-8');
     if ($origin === '') {
-        $body = '<div class="state"><p>Set the Chatwoot URL in Setup &rarr; Addon Modules &rarr; Chatwoot by inSave.</p></div>';
+        $body = '<div class="state"><p>Set the Chatwoot URL in Setup &rarr; Addon Modules &rarr; Chatwoot by inSave Hosting.</p></div>';
     } elseif ($admin === null) {
         $body = '<div class="state"><p>Log in to the WHMCS admin area in this browser to see the client.</p>'
             . '<p><a class="button" href="' . $login . '" target="_blank" rel="noopener">Log in to WHMCS admin</a> '
             . '<a class="button quiet" href="" onclick="location.reload(); return false;">Reload</a></p></div>';
     } elseif ($admin === false) {
         $body = '<div class="state"><p>Your admin role has no access to this card: Setup &rarr; Addon Modules &rarr; '
-            . 'Chatwoot by inSave &rarr; Configure &rarr; Access Control.</p></div>';
+            . 'Chatwoot by inSave Hosting &rarr; Configure &rarr; Access Control.</p></div>';
     } else {
         $body = '<div id="card"><div class="state"><p>Waiting for the conversation&hellip;</p></div></div>';
     }
