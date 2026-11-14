@@ -7,7 +7,7 @@ The first release under the module's own version number. The code is 2.0.4-insav
 - **Shown in WHMCS as Chatwoot by inSave Hosting** (was "Chatwoot by inSave"). The module's system name stays `chatwoot`, so its settings carry over.
 - **Documentation for people installing the module.** The README is now a guide: what the module does, requirements, installation step by step, every setting in plain words, setting up the WHMCS card and tickets from chats, troubleshooting. The reference material moved to `docs/`: [what the widget sends to Chatwoot](docs/data-sent.md), [how the WHMCS card works](docs/whmcs-card.md), [development and releasing](docs/development.md).
 - **Clearer setting descriptions** on the module's configuration page in WHMCS; links that led to unrelated Chatwoot articles are gone.
-- **Release zip under a fixed name.** Every release carries `chatwoot-by-insave.zip` next to the versioned file, so `releases/latest/download/chatwoot-by-insave.zip` always gives the newest version. `tools/build-release.sh` builds both.
+- **Release zip under a fixed name.** Every release carries `chatwoot-by-insave.zip`, so `releases/latest/download/chatwoot-by-insave.zip` always gives the newest version. `tools/build-release.sh` builds it.
 - Screenshots of the WHMCS card and the ticket form in `docs/images/` (test data); the old screenshot of the 2.0.0 settings page is removed.
 - Upgrading from 2.0.4-insave.8: replace `chatwoot.php` and `app.php` and open Addon Modules ([docs/deploy.md](docs/deploy.md)).
 

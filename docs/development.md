@@ -40,6 +40,6 @@ The stand also checks that the module version and the md5 table in [deploy.md](d
 
    ```bash
    tools/build-release.sh
-   # dist/chatwoot-by-insave-<version>.zip and dist/chatwoot-by-insave.zip (the same file)
+   # dist/chatwoot-by-insave.zip
    ```
-4. Tag the commit with the version, create a GitHub release from the tag and attach **both** zip files. The README and the WHMCS Marketplace listing link to `releases/latest/download/chatwoot-by-insave.zip`, so every release needs the file under that name.
+4. Tag the commit with the version, create a GitHub release from the tag and attach `chatwoot-by-insave.zip`. The README and the WHMCS Marketplace listing link to `releases/latest/download/chatwoot-by-insave.zip`, so the file keeps this name in every release.

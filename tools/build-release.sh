@@ -4,8 +4,8 @@
 #
 #   tools/build-release.sh [output directory]     (default: dist/)
 #
-# Writes chatwoot-by-insave-<version>.zip and a copy named
-# chatwoot-by-insave.zip, the name the "latest release" download link uses:
+# Writes chatwoot-by-insave.zip. The name carries no version on purpose: the
+# "latest release" download link stays the same for every version:
 # https://github.com/insavehosting/Chatwoot-WHMCS/releases/latest/download/chatwoot-by-insave.zip
 set -euo pipefail
 
@@ -20,10 +20,9 @@ mkdir -p "$stage/modules/addons/chatwoot"
 cp "$root"/modules/addons/chatwoot/{chatwoot,hooks,app}.php "$root/LICENSE" "$stage/modules/addons/chatwoot/"
 find "$stage" -exec touch -t 202001010000 {} +   # same bytes on every build
 
-zip="$out/chatwoot-by-insave-$version.zip"
-rm -f "$zip" "$out/chatwoot-by-insave.zip"
+zip="$out/chatwoot-by-insave.zip"
+rm -f "$zip"
 (cd "$stage" && zip -q -X -r "$zip" modules)
-cp "$zip" "$out/chatwoot-by-insave.zip"
 
-echo "$zip"
+echo "$zip (version $version)"
 (cd "$root" && md5sum modules/addons/chatwoot/{chatwoot,hooks,app}.php)
