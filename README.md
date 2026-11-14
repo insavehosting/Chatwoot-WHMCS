@@ -1,175 +1,201 @@
 # Chatwoot by inSave
 
-A WHMCS addon that puts the [Chatwoot](https://www.chatwoot.com) website widget into the client area and identifies the logged-in user in Chatwoot. Maintained by inSave Hosting OÜ; based on [WevrLabs-Group/Chatwoot-WHMCS](https://github.com/WevrLabs-Group/Chatwoot-WHMCS) 2.0.4. What changed is in [CHANGELOG.md](CHANGELOG.md).
+A free WHMCS addon that connects [Chatwoot](https://www.chatwoot.com) live chat to your billing:
 
-Requires WHMCS 8 or later and PHP 7.4+. SDK and API behaviour checked against Chatwoot v4.19.1.
+- the Chatwoot chat widget in the WHMCS client area, with the logged-in client recognised by name and email;
+- a **WHMCS card** inside Chatwoot, so an agent sees the client's services, unpaid invoices and open tickets next to the conversation;
+- a **ticket from chat**: one button turns a conversation into a WHMCS ticket with the transcript.
+
+Open source (MIT), no licence key, no ionCube. The module talks only to your own Chatwoot.
+
+| The WHMCS card in a conversation | Opening a ticket from a chat |
+|---|---|
+| ![The WHMCS card: account, credit, services, unpaid invoices and open tickets](docs/images/card-light.png) | ![The ticket form in the card: department, subject, priority](docs/images/ticket-form.png) |
+
+The card follows Chatwoot's light and dark theme ([dark screenshot](docs/images/card-dark.png)). The screenshots show test data.
 
 ## Contents
 
-| Path | What it is | Goes to the server |
-|---|---|---|
-| `modules/addons/chatwoot/chatwoot.php` | addon configuration, `chatwoot_upgrade` | yes, same path under the WHMCS root |
-| `modules/addons/chatwoot/hooks.php` | the widget (`ClientAreaFooterOutput`), the reset flag on logout (`UserLogout`) | yes, same path under the WHMCS root |
-| `modules/addons/chatwoot/app.php` | the WHMCS card for a Chatwoot Dashboard App | yes, same path under the WHMCS root |
-| `tools/clear-legacy-identifiers.rb` | upgrading from 2.0.4: clears the old identifiers in Chatwoot (rails runner) | only while upgrading |
-| `tools/export-identifier-map.php`, `tools/migrate-identifiers.rb` | upgrading from 2.0.4: maps old contacts to the new identifiers instead | only while upgrading, outside the web root |
-| `docs/` | [upgrading from 2.0.4](docs/deploy.md), [contacts from 2.0.4](docs/migrate-identifiers.md) | no |
-| `tests/stand/` | local test stand | no |
+- [What it does](#what-it-does)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Settings](#settings)
+- [WHMCS card in Chatwoot](#whmcs-card-in-chatwoot)
+- [Ticket from chat](#ticket-from-chat)
+- [Upgrading](#upgrading)
+- [Troubleshooting](#troubleshooting)
+- [Privacy](#privacy)
+- [Support](#support)
 
-## Fresh install
+## What it does
 
-1. Copy `modules/` into the WHMCS root, so that the files land in `<WHMCS>/modules/addons/chatwoot/`.
-2. WHMCS Admin → Setup → Addon Modules → Chatwoot by inSave → Activate, then Configure.
-3. Fill in the settings below. In Chatwoot, open Inboxes → your website inbox → Configuration → Identity Validation, copy the key into "Secret Key" and turn on **Enforce user identity validation**: without it the identifier can be forged.
+**For clients**
 
-Upgrading from 2.0.4: follow [docs/deploy.md](docs/deploy.md).
+- The chat widget on every client area page. A logged-in client does not have to introduce themselves: Chatwoot gets their name, email and company.
+- The widget speaks the language of the client area (optional).
+- After a logout the chat starts clean, so the next person at the same computer does not see the previous conversation.
+
+**For agents**
+
+- Each WHMCS user is one Chatwoot contact. A user invited into someone else's account gets a contact of their own and never sees the owner's conversations.
+- The contact carries the WHMCS user and client IDs, the number of active tickets, unpaid and overdue invoices, and the page the client is on.
+- A conversation started on a service, invoice or ticket page says which service, invoice or ticket it is.
+- The WHMCS card shows the account, credit, services, unpaid invoices and open tickets, each linked to the WHMCS admin area.
+- "Open ticket" in the card creates a WHMCS ticket in the right department with the chat transcript.
+
+**Safe by design**
+
+- The client's identity is signed with your Chatwoot inbox secret (Chatwoot's identity validation), so nobody can pose as another client from the browser.
+- No money amounts are sent to the browser. Agents see them only in the card, which needs a WHMCS admin login.
+- An admin using "Login as Client" never chats as that client.
+
+## Requirements
+
+| | |
+|---|---|
+| WHMCS | 8.0 or later. Developed and tested on WHMCS 9.1 with PHP 8.3; earlier 8.x versions are not tested by us |
+| Chatwoot | any Chatwoot with a Website inbox, self-hosted or Cloud, for the widget. Behaviour is checked against Chatwoot v4.19.1 |
+| For the WHMCS card and tickets from chat | Chatwoot and WHMCS on subdomains of the same domain, for example `chat.example.com` and `billing.example.com`, both on HTTPS. In practice this means a self-hosted Chatwoot |
+
+## Install
+
+1. Download `chatwoot-by-insave.zip` from the [latest release](https://github.com/insavehosting/Chatwoot-WHMCS/releases/latest).
+2. Unzip it and upload the `modules` folder into the WHMCS root folder. The files land in `<WHMCS>/modules/addons/chatwoot/`.
+3. In the WHMCS admin area open **Addon Modules** (System Settings → Addon Modules; in older versions Setup → Addon Modules), find **Chatwoot by inSave**, press **Activate**, then **Configure**.
+4. In Chatwoot open **Settings → Inboxes** and pick your Website inbox (or add one: **Add Inbox → Website**). On its **Configuration** tab:
+   - copy the `websiteToken` value from the widget script;
+   - under **Identity Validation** copy the secret key and turn on **Enforce user identity validation**.
+5. Back in WHMCS fill in **Chatwoot URL**, **Website Widget Token** and **Secret Key**, tick **Enable Chatwoot** and save.
+6. Open the client area in a private browser window. The chat bubble is in the corner; after you log in as a client and send a message, the contact in Chatwoot has the client's name and email.
+
+Keep **Enforce user identity validation** on. Without it a visitor could claim another client's identifier and read that client's conversations.
 
 ## Settings
 
-| Setting | Key in `tbladdonmodules` | What it does |
-|---|---|---|
-| Enable Chatwoot | `chatwoot_enable` | turns the widget on |
-| Chatwoot URL | `chatwoot_url` | Chatwoot address, e.g. `https://chat.example.com`; a trailing slash is fine |
-| Dashboard App Origin | `chatwoot_app_origin` | origin of the Chatwoot dashboard allowed to show the WHMCS card; empty: the origin of the Chatwoot URL |
-| Ticket departments | `chatwoot_ticket_departments` | lets agents open a WHMCS ticket from the card: `team=department ID` pairs, comma-separated, `*` for a conversation without a team, e.g. `sales=2,support=3,*=1`; empty: no ticket button (see "Ticket from chat") |
-| Website Widget Token | `chatwoot_token` | website inbox token (Inboxes → website → Configuration) |
-| Secret Key | `chatwoot_verhash` | the inbox's Identity Validation key; signs the identifier and never reaches the page |
-| Chat Box Position | `chatwoot_position` | `right` or `left` |
-| Chat Box Bubble | `chatwoot_bubble` | `Standard` or `Expanded Bubble` |
-| Bubble Launcher Title | `chatwoot_launcherTitle` | text on the expanded bubble |
-| Enable Dark Mode on Widget | `chatwoot_dark` | on: `darkMode: auto` (follows the OS); off: light |
-| Dynamic Language | `chatwoot_lang` | widget language = client area language (table `cw_locale()` in `hooks.php`) |
-| Default non-logged In Conversation Label | `chatwoot_setlabel` | conversation label for visitors; the label must exist in Chatwoot |
-| Default Logged In Conversation Label | `chatwoot_setlabelloggedin` | conversation label for clients |
-| Enable on Login as Client | `chatwoot_enableonadmin` | show the widget while an admin is logged in to WHMCS in the same browser (including Login as Client). The widget is never identified in an admin session, so an admin cannot chat as the client. Off: no widget in admin sessions |
-
-## What is sent to Chatwoot
-
-Everything is set from the visitor's browser. Only the identifier is signed (HMAC): with identity validation enforced it cannot be forged. Attributes and labels can be changed by the client from the browser console, so do not base decisions about money or access on them.
-
-### Visitors, users with no account selected, admin sessions
-
-- label `chatwoot_setlabel`, locale (with Dynamic Language);
-- contact attribute `current_page`.
-
-No `setUser`. For a user without a selected account (e.g. on `/user/accounts`) and in an admin session (with "Enable on Login as Client" on) the widget is not reset either.
-
-### A user in a client account
-
-`setUser` — the Chatwoot contact is the WHMCS **user**:
-
-| Field | Source |
+| Setting | What to put there |
 |---|---|
-| `identifier` | `whmcs:u:<tblusers.id>` |
-| `identifier_hash` | HMAC-SHA256 of `identifier` with `chatwoot_verhash` |
-| `email`, `name` | the user (`tblusers`): email, first and last name |
-| `company_name` | the client account the user is in |
+| Enable Chatwoot | Turns the widget on and off |
+| Chatwoot URL | The address of your Chatwoot, for example `https://chat.example.com` |
+| Website Widget Token | The `websiteToken` of the Website inbox (step 4 above) |
+| Secret Key | The Identity Validation key of the same inbox. It signs the client's identity and never reaches the browser |
+| Chat Box Position | The bubble on the right or on the left |
+| Chat Box Bubble | A round bubble (Standard) or a bubble with text (Expanded Bubble) |
+| Bubble Launcher Title | The text on the expanded bubble, for example "Chat with us" |
+| Enable Dark Mode on Widget | On: the widget follows the visitor's light or dark system theme. Off: always light |
+| Dynamic Language | On: the widget uses the client area language, when Chatwoot has that language |
+| Default non-logged In Conversation Label | A Chatwoot label for conversations of visitors, for example `visitor`. Create the label in Chatwoot first |
+| Default Logged In Conversation Label | A Chatwoot label for conversations of logged-in clients, for example `client`. Create the label in Chatwoot first |
+| Enable on Login as Client | On: the widget is also shown while you are logged in to the WHMCS admin area in the same browser. It is shown as for a visitor, so an admin never chats as the client. Off: no widget in that browser |
+| Dashboard App Origin | Only for the WHMCS card. Leave empty unless agents open the Chatwoot dashboard at a different address than the Chatwoot URL above |
+| Ticket departments | Only for tickets from chat, see [Ticket from chat](#ticket-from-chat). Empty: no ticket button |
+| Access Control | The admin roles that may see the WHMCS card. With no role ticked, nobody sees it |
 
-Contact attributes (`setCustomAttributes`), for the account the user is in now (`GetClientsDetails` with stats):
+## WHMCS card in Chatwoot
 
-| Key | Type | Source |
-|---|---|---|
-| `whmcs_user_id` | number | user ID |
-| `whmcs_client_id` | number | client account ID |
-| `whmcs_is_owner` | boolean | the user owns the account |
-| `phone` | string | account phone (`phonenumberformatted`) |
-| `language` | string | account language |
-| `city`, `state`, `postcode`, `country` | string | account address |
-| `active_tickets` | number | active tickets |
-| `unpaid_invoices` | number | unpaid invoices |
-| `overdue_invoices` | number | overdue invoices |
-| `email_verified` | boolean | the account email is verified |
-| `is_affiliate` | boolean | the account is an affiliate |
-| `current_page` | string | see below |
+The card is a Chatwoot "Dashboard App": a tab next to a conversation that shows the WHMCS client behind the contact.
 
-No money amounts are sent: everything here is in the page source for every user of the account, invited users included. Agents see amounts in the WHMCS card below.
+**Set it up**
 
-Labels: `chatwoot_setlabelloggedin` is set, `chatwoot_setlabel` removed.
+1. WHMCS → Addon Modules → Chatwoot by inSave → Configure → **Access Control**: tick the admin roles of your agents.
+2. Chatwoot → **Settings → Integrations → Dashboard apps → Add a new dashboard app**. Name: for example `WHMCS`. URL: your WHMCS address followed by `modules/addons/chatwoot/app.php`, for example `https://billing.example.com/modules/addons/chatwoot/app.php`.
+3. Open any conversation and switch to the new tab.
 
-Conversation attributes (`setConversationCustomAttributes`), on three pages only and only for an object of the current account (checked in the database):
+**How agents use it**
 
-| Page | Keys |
-|---|---|
-| service (`clientareaproductdetails`) | `service_id`, `product`, `domain`, `service_status` |
-| invoice (`viewinvoice`) | `invoice_id`, `invoice_status` |
-| ticket (`viewticket`) | `ticket_tid` |
+- The agent must be logged in to the WHMCS admin area in the same browser. If not, the card shows a "Log in to WHMCS admin" button; after logging in, press Reload.
+- A contact who chatted while logged in to the client area is marked **Signed-in user**: this is certain.
+- A contact from another channel (Telegram, WhatsApp, Facebook, email) or a visitor is looked up by email and marked **Matched by email, not confirmed**: anyone can type any email, so check before you act on it. To make such a contact certain, merge it in Chatwoot with the contact of the signed-in user (contact → Merge).
+- A user with several client accounts gets a block per account.
+- The round arrow reloads the data.
 
-Chatwoot replaces the conversation's attributes with this set as a whole; with no conversation yet, the widget keeps the set and sends it with the first message. Do not put other attributes on conversations of this inbox by hand: the next such page overwrites them.
+The card only reads WHMCS. The one thing it can create is a ticket, and only after you set up [Ticket from chat](#ticket-from-chat). It never writes to Chatwoot and stores no Chatwoot API token.
 
-### `current_page`
+How the card is protected and what your web server needs: [docs/whmcs-card.md](docs/whmcs-card.md).
 
-The WHMCS SystemURL plus the route, without the query string. `index.php?rp=/route` and `index.php/route` are read as the route. On `/password/reset/…`, `/user/verify/…` and `/invite/…` only the route is kept (plus `redeem`/`use`); any path is cut at a segment that looks like a token.
+## Ticket from chat
 
-## WHMCS card in Chatwoot (Dashboard App)
+When a chat turns into work that needs a ticket, the agent presses **Open ticket** in the card.
 
-`app.php` shows the WHMCS client behind the contact of a Chatwoot conversation, in Chatwoot's light or dark theme: the account (name, company, status, client since, credit), services (product, domain, status, next due date), unpaid invoices with the balance left and an overdue flag, and open tickets, each linked to the WHMCS admin area. It writes nothing, except a ticket an agent opens from the conversation ("Ticket from chat", off unless set up), and never writes to Chatwoot.
+**Set it up**
 
-**Setup**
+1. Find the IDs of your support departments: WHMCS → Support Departments, the number in the address of a department's edit page (`…id=3`).
+2. In the module settings fill in **Ticket departments**: `Chatwoot team=department ID`, separated by commas; `*` is a conversation with no team. Example: `sales=2,billing=4,support=3,*=1`.
+3. Make sure the agents' admin role has the WHMCS permission **Open New Ticket** (Administrator Roles).
 
-1. WHMCS Admin → Setup → Addon Modules → Chatwoot by inSave → Configure → **Access Control**: tick the admin roles that may see the card. With no role ticked nobody sees it.
-2. Chatwoot → Settings → Integrations → Dashboard apps → Add: any name, URL `<WHMCS SystemURL>modules/addons/chatwoot/app.php`.
-3. The page sends `Content-Security-Policy: frame-ancestors <Chatwoot origin>` itself. If the web server adds `X-Frame-Options: SAMEORIGIN` to every response, browsers ignore it here because `frame-ancestors` is present (checked in Chromium, WebKit and Firefox); dropping it for this path is still cleaner, e.g. with nginx `map $uri $xfo { /modules/addons/chatwoot/app.php ""; default "SAMEORIGIN"; }` and `add_header X-Frame-Options $xfo;` (an empty value sends no header).
+**Use it**
 
-**Access.** The card uses the WHMCS admin session of the browser the agent works in: log in to the WHMCS admin area in the same browser. Chatwoot and WHMCS must be on the same site (e.g. `chat.example.com` and `billing.example.com`), otherwise the browser does not send the WHMCS session cookie into the iframe and the card asks to log in. Without a session, or for a role without access, the page returns no data.
+1. Open the conversation and the WHMCS tab, press **Open ticket**.
+2. Check the department, subject and priority. The department is preselected from the conversation's team.
+3. Press **Create ticket**. The card shows the ticket number, a link to it in the admin area and a link for the client with a **Copy** button, to paste into the chat.
 
-**How it works.** Chatwoot posts the conversation context to the iframe (`appContext`). The page accepts it only from the Dashboard App Origin, then posts the contact's identifier and email back to `app.php` with the WHMCS CSRF token. A `whmcs:u:<id>` identifier was signed by the widget and identifies the user; a contact without one (Telegram, Meta, a visitor) is matched by email and marked "not confirmed". Response headers: `frame-ancestors` (the Chatwoot origin only), `Cache-Control: no-store`, `Referrer-Policy: no-referrer`; no `X-Frame-Options`.
+**Good to know**
 
-### Ticket from chat
+- The button is there only for a **Signed-in user** who owns the account or is allowed to manage its tickets. For a contact matched by email, merge the contacts first.
+- **Create ticket** is greyed out until the whole conversation is loaded. Chatwoot loads long conversations in parts: scroll the conversation up to its first message, then press the round arrow in the card.
+- The ticket contains the public messages of the client and the agents, with date and time. Private notes, system messages and automatic replies stay out. Attachments are listed by name and stay in the chat.
+- Very long conversations are shortened from the start, and the ticket says how many messages were left out. Emoji are replaced with `�`.
+- WHMCS emails the client that a ticket was opened, as for any ticket opened by staff.
+- Pressing the button again for the same conversation shows the existing ticket instead of creating a second one.
 
-When a chat turns into work, an agent opens a WHMCS ticket from the card, with the conversation in it.
+Limits and the checks behind the button: [docs/whmcs-card.md](docs/whmcs-card.md#ticket-from-chat).
 
-**Setup.** Fill in **Ticket departments** (Settings above): each Chatwoot team goes to a WHMCS department, `*` is a conversation without a team. A department ID that does not exist is ignored and named in the card. The admin needs WHMCS's own **Open New Ticket** permission (Setup → Staff Management → Administrator Roles), checked with `WHMCS\User\Admin::hasPermission()`, besides the addon's Access Control.
+## Upgrading
 
-**When the button is there.** On an account in the card, when all of these hold:
+- **From an earlier Chatwoot by inSave (2.0.4-insave.x):** replace the files in `modules/addons/chatwoot/` with the ones from the new zip and open the Addon Modules page once. Settings are kept.
+- **From Chatwoot-WHMCS 2.0.4 by WevrLabs:** the module keeps its system name, so your settings carry over. The way contacts are identified in Chatwoot changes, so read [docs/deploy.md](docs/deploy.md) before you upload the files.
 
-- the contact is a signed-in WHMCS user (identifier `whmcs:u:<id>`). A contact matched only by email gets no button and a hint: merge it in Chatwoot with the contact of the signed-in user first (Telegram and Meta contacts are like that until merged);
-- the user owns the account, or is invited with the **tickets** permission;
-- the admin has Open New Ticket.
+What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
-**The form.** Department (the one mapped to the conversation's team), subject `Chat #<conversation number>: ` followed by the start of the client's first message (editable), priority (Medium), and how many messages will go in. **Create ticket** stays disabled until Chatwoot has loaded the conversation from its first message: Chatwoot loads a conversation page by page and does not post the context again when older messages load, so scroll the conversation up to the start and press Refresh in the card (the open form and what was typed in it are kept).
+## Troubleshooting
 
-**What goes into the ticket.** A plain-text transcript (Markdown off): a header `Chat transcript #<number>, <first> – <last> UTC`, then `[YYYY-MM-DD HH:MM UTC] <name>: <text>` per message. Only public messages of the client and the agents; private notes, activity and template messages (greeting, out of office, email request, CSAT) stay out, and so do Chatwoot's translations. Attachments are named, never linked: Chatwoot's file links are signed and open the file to anyone who has them. The ticket message is a `TEXT` column in WHMCS (65 535 bytes), so the transcript is kept under 60 000 bytes: the oldest messages are left out and the header says how many. The card sends at most the newest 2 000 messages (about 400 KB) and tells the server how many older ones it left out. Characters outside the Basic Multilingual Plane (emoji) become `�`: WHMCS's ticket tables are often `utf8` (3 bytes), where such a character silently cuts off the rest of the text.
+**The widget does not show.**
+- **Enable Chatwoot** is ticked, and the Chatwoot URL and Website Widget Token are filled in.
+- You are logged in to the WHMCS admin area in the same browser. With **Enable on Login as Client** off, that browser gets no widget. Check in a private window.
+- The browser console shows an error loading `…/packs/js/sdk.js`: the Chatwoot URL is wrong or not reachable from the visitor's network, or a Content Security Policy on your site blocks it.
+- A cookie banner or an ad blocker is holding the script back.
 
-**What WHMCS does.** `OpenTicket` with the client, the user (`userid`, WHMCS 8.5+), the department, the subject and priority, as an admin-opened ticket. WHMCS sends the client its "Support Ticket Opened by Admin" email; the module does not suppress it. The admin activity log gets `Chatwoot card: ticket #<tid> opened from chat #<number>`, without the text. A second press for the same conversation finds the existing ticket by its subject (merged tickets are skipped) and shows it instead of opening another. It is a check by subject, not a stored link: a ticket renamed in WHMCS, or two agents pressing at the same moment, can still give a second ticket; conversation numbers repeat across Chatwoot accounts, so with several accounts the subject can point at another account's chat.
+**The client shows up in Chatwoot as an anonymous visitor.**
+- The **Secret Key** does not match the inbox's Identity Validation key. With enforcement on, Chatwoot then refuses to identify the contact; in the browser's network tab the `set_user` request fails with 401.
+- You are testing with "Login as Client" or with an admin session in the same browser: the widget is never identified there. Log in as the client in a private window.
+- The user is logged in but has not chosen a client account yet (the account selection page).
 
-**After.** The card shows the ticket number, a link to it in the admin area and the client's link (`viewticket.php?tid=…&c=…`) with a Copy button, for the agent to paste into the chat; the card posts nothing to Chatwoot.
+**Labels are not put on conversations.** The label must exist in Chatwoot (Settings → Labels) with exactly the same name.
 
-**Checks on the server.** WHMCS escapes every request variable before a module runs, so the card sends the conversation and the subject base64-encoded. The request carries the WHMCS CSRF token and needs the admin session and Access Control, like the lookup. The server checks everything again: the identifier, the user's link to the account and its permission, the department against the setting, the admin's permission, the size of the request (600 KB, 5 000 messages) and every message's type and fields. WHMCS keeps ticket text HTML-encoded (its own forms arrive escaped) and prints it as stored, so the subject and the transcript are HTML-encoded before `OpenTicket` — markup a client typed in the chat shows as text — and the 60 000-byte limit is counted on the encoded text. No new tables.
+**The widget language does not follow the client area.** Turn on **Dynamic Language**. If Chatwoot has no translation for that language, the widget keeps its default language.
 
-Do not set `chatwootSettings.baseDomain` to share one widget session across subdomains: in SDK 4.19.1 `$chatwoot.reset()` removes the `cw_conversation` and user cookies without a domain, so a cookie set with `baseDomain` survives a logout.
+**The card asks to log in to WHMCS although I am logged in.**
+- The admin login must be in the same browser and profile as Chatwoot.
+- Chatwoot and WHMCS must be on subdomains of the same domain. With `chat.example.com` and `billing.another.com` the browser does not pass the WHMCS login into the card, and the card cannot work.
+- Open Chatwoot at the address set in **Chatwoot URL** (or **Dashboard App Origin**).
 
-## Widget reset
+**The card says my admin role has no access.** Tick the role in the module's **Access Control**.
 
-The widget is reset when its session belongs to someone else:
+**The card tab stays empty.** Most often your web server or a security module adds its own `Content-Security-Policy` header with `frame-ancestors` to every page, which forbids showing WHMCS pages inside Chatwoot. Leave that header out for `/modules/addons/chatwoot/app.php`: see [docs/whmcs-card.md](docs/whmcs-card.md#web-server).
 
-- **after a logout.** The `UserLogout` hook sets a session flag, and client area pages leave the identifier in `localStorage['insave_cw_client']`; the next visitor page resets the widget.
-- **when another user is identified in the same browser.** The marker differs: reset, and the new user is identified from the next page (Chatwoot does not fire `chatwoot:ready` again after `reset()`).
+**The card says "No WHMCS client for …".** The contact's email is not the email of a WHMCS user or client account.
 
-A visitor who simply opens `/login` is never reset.
+**There is no "Open ticket" button.** All of these must hold: **Ticket departments** is filled in, the contact is a **Signed-in user**, that user owns the account or may manage its tickets, and your admin role has **Open New Ticket**.
 
-## Load per page
+**"Create ticket" is greyed out.** Scroll the conversation up to its first message, then press the round arrow in the card.
 
-- one query for the module settings;
-- `GetClientsDetails` at most once per 5 minutes per user and account (cached in `$_SESSION['insave_cw_details']`);
-- one lookup on the service, invoice and ticket pages;
-- in the browser: Chatwoot skips `setUser` when nothing changed; `setCustomAttributes` goes out only when the set or the widget session changed (fingerprint in `localStorage['insave_cw_attrs']`); labels are sent on every page, as in 2.0.4.
+**Does it work with Chatwoot Cloud?** The widget does. The WHMCS card and tickets from chat need Chatwoot on a subdomain of your own domain.
 
-## Upgrade and rollback
+## Privacy
 
-- [docs/deploy.md](docs/deploy.md) — order, files with md5, checks, rollback.
-- [docs/migrate-identifiers.md](docs/migrate-identifiers.md) — what to do with the contacts 2.0.4 created.
+For a logged-in client the widget sends to your Chatwoot: name, email, company, phone, city, state, postcode, country, language, the WHMCS user and client IDs, the number of active tickets, unpaid and overdue invoices, and the address of the current page without its query string. For a visitor it sends only the page address. Nothing goes to inSave or to any third party, and the module makes no outside requests of its own.
 
-## Testing without a live WHMCS
+The full list, field by field: [docs/data-sent.md](docs/data-sent.md). Mention the chat in your own privacy policy if you have not yet.
 
-```bash
-python3 tests/stand/run.py
-# PASS: the last line is ALL PASS
-```
+## Support
 
-Needs php 8.x, ruby and Playwright for Python with Chromium. The stand renders the real `hooks.php` with WHMCS stubs and opens it in Chromium with a fake SDK that records every call. The card (`app.php`) runs under `php -S` in a fake Chatwoot dashboard; tickets it opens are recorded by a stubbed `OpenTicket`. Set `CW_STAND_SHOTS=<dir>` to save screenshots of the card and the ticket form, light and dark.
+- Questions and bug reports: [GitHub Issues](https://github.com/insavehosting/Chatwoot-WHMCS/issues). Say which WHMCS, PHP and Chatwoot versions you run. Do not post tokens, secret keys or client data.
+- A security problem: please report it privately through **Security → Report a vulnerability** on the repository page, not in a public issue.
+- Developing and testing the module: [docs/development.md](docs/development.md).
 
-## License
+## License and credits
 
-MIT (see [LICENSE](LICENSE)): © 2020 WevrLabs Group, © 2026 inSave Hosting OÜ.
+MIT, see [LICENSE](LICENSE): © 2020 WevrLabs Group, © 2026 inSave Hosting OÜ.
 
-Chatwoot is a trademark of its owner. This project is not affiliated with or endorsed by Chatwoot.
+Maintained by [inSave Hosting](https://insave.hosting). Based on [Chatwoot-WHMCS](https://github.com/WevrLabs-Group/Chatwoot-WHMCS) 2.0.4 by WevrLabs.
+
+Chatwoot and WHMCS are trademarks of their owners. This project is not affiliated with or endorsed by Chatwoot or WHMCS.

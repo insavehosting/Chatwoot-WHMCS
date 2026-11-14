@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.0 — 2026-11-14
+
+The first release under the module's own version number. The code is 2.0.4-insave.8: `hooks.php` and `app.php` are unchanged, and nothing changes for clients or agents.
+
+- **Documentation for people installing the module.** The README is now a guide: what the module does, requirements, installation step by step, every setting in plain words, setting up the WHMCS card and tickets from chats, troubleshooting. The reference material moved to `docs/`: [what the widget sends to Chatwoot](docs/data-sent.md), [how the WHMCS card works](docs/whmcs-card.md), [development and releasing](docs/development.md).
+- **Clearer setting descriptions** on the module's configuration page in WHMCS; links that led to unrelated Chatwoot articles are gone.
+- **Release zip under a fixed name.** Every release carries `chatwoot-by-insave.zip` next to the versioned file, so `releases/latest/download/chatwoot-by-insave.zip` always gives the newest version. `tools/build-release.sh` builds both.
+- Screenshots of the WHMCS card and the ticket form in `docs/images/` (test data); the old screenshot of the 2.0.0 settings page is removed.
+- Upgrading from 2.0.4-insave.8: replace `chatwoot.php` and open Addon Modules ([docs/deploy.md](docs/deploy.md)).
+
 ## 2.0.4-insave.8 — 2026-11-08
 
 - **Fix: ticket from chat on a real WHMCS.** WHMCS escapes every request variable (as `htmlspecialchars` does) before a module runs, which broke the JSON of the conversation: "Create ticket" answered "The conversation could not be read" and no ticket was opened. The card now sends the conversation and the subject base64-encoded; a subject with quotes or `<`, `&` arrives as typed. The test stand escapes requests the same way.
