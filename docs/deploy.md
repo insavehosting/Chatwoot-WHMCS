@@ -1,9 +1,9 @@
 # Upgrading to 3.0.0
 
-3.0.0 is 2.0.4-insave.8 under its own version number: `hooks.php` and `app.php` are the same files, `chatwoot.php` has the new version and clearer setting descriptions.
+3.0.0 is 2.0.4-insave.8 under its own version number and the name "Chatwoot by inSave Hosting": `hooks.php` is the same file, `app.php` differs only in that name, `chatwoot.php` has the new version, the name and clearer setting descriptions.
 
-- **From 2.0.4-insave.8:** replace `chatwoot.php` (md5 below) and open the Addon Modules page in the WHMCS admin area; the settings stay.
-- **From 2.0.4-insave.7:** replace `chatwoot.php` and `app.php` and open Addon Modules. 2.0.4-insave.7 could not open a ticket on a real WHMCS ("The conversation could not be read").
+- **From 2.0.4-insave.8:** replace `chatwoot.php` and `app.php` (md5 below) and open the Addon Modules page in the WHMCS admin area; the settings stay.
+- **From 2.0.4-insave.7:** the same. 2.0.4-insave.7 could not open a ticket on a real WHMCS ("The conversation could not be read").
 - **From 2.0.4-insave.4, .5 or .6:** replace `chatwoot.php` and `app.php` and open Addon Modules. To let agents open tickets from chats, then fill in **Ticket departments** and check the admin roles' **Open New Ticket** permission ([README, "Ticket from chat"](../README.md#ticket-from-chat)); left empty, the card stays as it was.
 - **From 2.0.4-insave.2 or .3:** put the three files in place, open Addon Modules, then set up the WHMCS card ([README, "WHMCS card in Chatwoot"](../README.md#whmcs-card-in-chatwoot)): Access Control roles, the Dashboard App in Chatwoot.
 - **From Chatwoot-WHMCS 2.0.4 by WevrLabs:** the whole page applies.
@@ -14,9 +14,9 @@ Three files go to the server, `modules/addons/chatwoot/chatwoot.php`, `hooks.php
 
 | File | md5 of 3.0.0 |
 |---|---|
-| `chatwoot.php` | `83587e8d9fbb4dc41c0d74f3a8978ae5` |
+| `chatwoot.php` | `085de7a39fa70672c4d6c8c598c82e47` |
 | `hooks.php` | `6af44aac22868c7b1aa068cb79a28846` |
-| `app.php` | `b3d0ffe72a3551abc49d1a24242e6108` |
+| `app.php` | `3d5e804b18810243b9f325fdc7914355` |
 
 What may be there now (keep a copy for a rollback):
 
@@ -26,6 +26,7 @@ What may be there now (keep a copy for a rollback):
 | `hooks.php` | 2.0.4 (upstream tag `2.0.4`) | `440870a44a9c4ab7ad3fcd6cfa07c861` |
 | `hooks.php` | 2.0.4 + the reset fix (branch `fix-guest-reset`, `17d5e6d`) | `fcd926d8d6e4570b91a7de63e838362b` |
 | `chatwoot.php` | 2.0.4-insave.8 | `8e6ec27ad02b9732e1a0b08a9577efd8` |
+| `app.php` | 2.0.4-insave.8 | `b3d0ffe72a3551abc49d1a24242e6108` |
 | `chatwoot.php` | 2.0.4-insave.7 | `712d9206271bdff8e7a642d29335f346` |
 | `app.php` | 2.0.4-insave.7 | `548f9d15c43b3d64e9a2298db28db943` |
 | `chatwoot.php` | 2.0.4-insave.6 | `ffe55a5dcd4defae97d892f674ba7846` |
@@ -50,7 +51,7 @@ What may be there now (keep a copy for a rollback):
 
    ```bash
    md5sum modules/addons/chatwoot/*.php
-   # PASS: 83587e8d… chatwoot.php, 6af44aac… hooks.php, b3d0ffe7… app.php
+   # PASS: 085de7a3… chatwoot.php, 6af44aac… hooks.php, 3d5e804b… app.php
    ```
 
 ## Order
@@ -65,7 +66,7 @@ What may be there now (keep a copy for a rollback):
    md5sum <WHMCS>/modules/addons/chatwoot/*.php
    # PASS: the md5 from "Files"
    ```
-3. **WHMCS Admin → Setup → Addon Modules.** Opening the page is enough: WHMCS sees the new version and calls `chatwoot_upgrade`. The addon is now listed as "Chatwoot by inSave".
+3. **WHMCS Admin → Setup → Addon Modules.** Opening the page is enough: WHMCS sees the new version and calls `chatwoot_upgrade`. The addon is now listed as "Chatwoot by inSave Hosting".
 
    ```sql
    SELECT setting, LEFT(value, 20) FROM tbladdonmodules WHERE module = 'chatwoot' AND setting IN ('version', 'chatwoot_jscode')
@@ -95,7 +96,7 @@ Use a private browser window with the console open.
 
 ## Rollback
 
-From 3.0.0 to 2.0.4-insave.8: put back `chatwoot.php` from the backup and open Addon Modules.
+From 3.0.0 to 2.0.4-insave.8: put back `chatwoot.php` and `app.php` from the backup and open Addon Modules.
 
 From 3.0.0, 2.0.4-insave.8 or .7 to .6: put back `chatwoot.php` and `app.php` from the backup and open Addon Modules. The Ticket departments value stays in `tbladdonmodules` and is not read by .6; tickets opened from chats stay in WHMCS.
 
